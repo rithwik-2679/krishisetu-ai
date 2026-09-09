@@ -1,285 +1,213 @@
 "use client";
+import { formatINR } from '@/utils/economics';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useLot } from '@/contexts/lot-context';
+import { Users, Truck, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { Users, Truck, ArrowRight, ShieldCheck, CheckCircle2, TrendingDown, Info, LayoutDashboard } from 'lucide-react';
-import { findCompatibleLots, calculateLogisticsEconomics, ScoredNearbyLot } from '../utils/aggregation-engine';
 
 export function FpoAggregation() {
   const router = useRouter();
-  const { currentLot, updateAggregation } = useLot();
-  
-  const [compatibleLots, setCompatibleLots] = useState<ScoredNearbyLot[]>([]);
-  const [selectedLots, setSelectedLots] = useState<Set<string>>(new Set());
-  
-  useEffect(() => {
-    if (currentLot) {
-      const lots = findCompatibleLots(currentLot);
-      // eslint-disable-next-line
-      setCompatibleLots(lots);
-      // Pre-select highly compatible lots by default
-      const preselected = new Set(lots.filter(l => l.compatibilityScore >= 80).map(l => l.id));
-      // eslint-disable-next-line
-      setSelectedLots(preselected);
-    }
-  }, [currentLot]);
+  const { currentLot, updateLotStatus, updateAggregation, isHydrated } = useLot();
+  const [isAggregating, setIsAggregating] = useState(false);
+
+  if (!isHydrated) return null;
 
   if (!currentLot) {
     return (
-      <div className="max-w-4xl mx-auto p-6 text-center py-20">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">No Active Context</h2>
-        <button onClick={() => router.push('/market-intelligence')} className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium transition-colors">
-          Go to Dashboard
+      <div className="flex flex-col items-center justify-center p-12 text-center max-w-lg mx-auto mt-10 bg-white border border-gray-200 rounded-2xl shadow-sm">
+        <Users className="w-12 h-12 text-gray-300 mb-4" />
+        <h2 className="text-xl font-bold text-gray-900 mb-2">No Active Lot</h2>
+        <p className="text-gray-500 mb-6 text-sm">Create a lot to begin your selling journey and discover aggregation opportunities.</p>
+        <button onClick={() => router.push('/create-lot')} className="px-6 py-2.5 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-colors">
+          Create Lot
         </button>
       </div>
     );
   }
 
-  // Calculate totals dynamically
-  const selectedLotDetails = compatibleLots.filter(l => selectedLots.has(l.id));
-  const aggregatedQuantity = currentLot.quantity + selectedLotDetails.reduce((sum, lot) => sum + lot.quantity, 0);
-  const avgScore = selectedLotDetails.length > 0 
-    ? selectedLotDetails.reduce((sum, lot) => sum + lot.compatibilityScore, 0) / selectedLotDetails.length 
-    : 0;
-
-  // Assuming a pseudo-distance to the market of 150km for cost demonstration
-  const economics = calculateLogisticsEconomics(currentLot.quantity, 150, aggregatedQuantity);
-
-  const toggleLot = (id: string) => {
-    const newSet = new Set(selectedLots);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
-    setSelectedLots(newSet);
-  };
-
-  const handleSkip = () => {
-    updateAggregation({ isAggregated: false });
-    router.push('/matching');
-  };
-
-  const handleConfirm = () => {
-    updateAggregation({
-      isAggregated: true,
-      fpoName: 'KrishiSetu Farmer Producer Organization',
-      participatingFarmers: selectedLots.size + 1, // +1 for the current user
-      contributingLots: selectedLotDetails,
-      originalQuantity: currentLot.quantity,
-      aggregatedQuantity: aggregatedQuantity,
-      averageCompatibilityScore: avgScore,
-      estimatedIndividualCost: economics.estimatedIndividualCost,
-      estimatedAggregatedCost: economics.estimatedAggregatedCost,
-      estimatedSavings: economics.estimatedSavings,
-      status: 'FPO BULK LOT CREATED'
-    });
-    router.push('/matching');
-  };
-
-  if (compatibleLots.length === 0) {
+  if (currentLot.fpoDetails?.isAggregated || currentLot.fpoDetails?.status === 'skipped') {
     return (
-      <div className="max-w-4xl mx-auto p-6 py-12 text-center">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
-          <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">No Nearby Aggregation Found</h2>
-          <p className="text-gray-500 mb-6">There are currently no FPO aggregation opportunities for {currentLot.commodity} in your immediate area.</p>
-          <button onClick={handleSkip} className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-bold flex items-center justify-center gap-2 mx-auto shadow-sm">
-            Proceed to Individual Matching <ArrowRight className="w-5 h-5" />
+      <div className="flex flex-col gap-6 p-6 max-w-4xl mx-auto text-center mt-12">
+        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <CheckCircle2 className="w-10 h-10 text-green-600" />
+        </div>
+        <h2 className="text-3xl font-extrabold text-gray-900">Aggregation Complete</h2>
+        <p className="text-gray-500 max-w-md mx-auto font-medium">
+          {currentLot.fpoDetails?.isAggregated 
+            ? "Your lot has been successfully aggregated with nearby farmers. Transport costs will be shared." 
+            : "You have skipped aggregation and will proceed with an individual lot."}
+        </p>
+        <div className="mt-8">
+          <button onClick={() => router.push('/matching')} className="px-8 py-3.5 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors shadow-sm inline-flex items-center gap-2">
+            Proceed to Buyer Matching <ArrowRight className="w-5 h-5" />
           </button>
         </div>
       </div>
     );
   }
 
-  // Already aggregated view
-  if (currentLot.fpoDetails?.isAggregated) {
-    const fpo = currentLot.fpoDetails;
-    return (
-      <div className="max-w-4xl mx-auto p-6">
-        <div className="bg-white border-2 border-green-600 rounded-xl shadow-md overflow-hidden relative mb-8">
-          <div className="absolute top-0 right-0 bg-green-100 text-green-800 text-xs font-bold px-3 py-1 rounded-bl-xl border-l border-b border-green-200 flex items-center gap-1">
-            <CheckCircle2 className="w-3 h-3"/> {fpo.status}
-          </div>
-          <div className="p-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2 flex items-center gap-3">
-              <Users className="w-8 h-8 text-green-600" />
-              {fpo.fpoName}
-            </h1>
-            <p className="text-gray-500 mb-8">Your lot is successfully part of an aggregated bulk shipment.</p>
+  // Simulated FPO matches based on current lot
+  const matches = [
+    { id: 'F-102', distance: 2.5, quantity: 15 },
+    { id: 'F-105', distance: 4.1, quantity: 22 },
+    { id: 'F-118', distance: 5.0, quantity: 8 },
+  ];
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-100">
-                <p className="text-sm text-gray-500 mb-1">Total Volume</p>
-                <p className="text-2xl font-bold text-gray-900">{fpo.aggregatedQuantity} <span className="text-sm font-normal text-gray-500">{currentLot.unit}</span></p>
-              </div>
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-100">
-                <p className="text-sm text-gray-500 mb-1">Farmers</p>
-                <p className="text-2xl font-bold text-gray-900">{fpo.participatingFarmers}</p>
-              </div>
-              <div className="bg-green-50 p-4 rounded-lg border border-green-200 md:col-span-2">
-                <p className="text-sm text-green-800 font-medium mb-1 flex items-center gap-1"><TrendingDown className="w-4 h-4"/> Logistics Savings</p>
-                <p className="text-2xl font-bold text-green-700">₹{fpo.estimatedSavings.toLocaleString('en-IN')}</p>
-              </div>
-            </div>
+  const totalAdditionalQuantity = matches.reduce((sum, m) => sum + m.quantity, 0);
+  const aggregatedQuantity = currentLot.quantity + totalAdditionalQuantity;
 
-            <div className="flex justify-end gap-4">
-              <button onClick={() => updateAggregation({ isAggregated: false })} className="px-6 py-3 border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-lg font-bold transition-colors">
-                Cancel Aggregation
-              </button>
-              <button onClick={() => router.push('/matching')} className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-colors">
-                Continue to Buyers <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Logistics constraints: a standard medium truck carries ~150 Quintals (15 Tonnes)
+  // Converting standard to quintals for capacity
+  const truckCapacityQuintals = currentLot.unit === 'Tonnes' ? 15 : 150;
+  
+  // Ceiling math for trucks
+  const individualTrucks = Math.ceil(currentLot.quantity / truckCapacityQuintals);
+  const aggregatedTrucks = Math.ceil(aggregatedQuantity / truckCapacityQuintals);
+
+  // Assuming a flat truck rate per trip (distance normalized for demo)
+  const costPerTruck = 8000;
+  const individualCost = individualTrucks * costPerTruck;
+  
+  // Aggregated cost is shared proportionally by quantity
+  const totalAggregatedCost = aggregatedTrucks * costPerTruck;
+  const farmerShareRatio = currentLot.quantity / aggregatedQuantity;
+  const farmerAggregatedCost = Math.round(totalAggregatedCost * farmerShareRatio);
+
+  const estimatedSavings = individualCost - farmerAggregatedCost;
+
+  const handleAggregrate = () => {
+    setIsAggregating(true);
+    setTimeout(() => {
+      updateLotStatus('Ready');
+      updateAggregation({
+        status: 'aggregated',
+        isAggregated: true,
+        aggregatedQuantity,
+        farmerShareRatio,
+        estimatedSavings,
+        matchedFarmerCount: matches.length
+      });
+      setIsAggregating(false);
+      router.push('/matching');
+    }, 1500);
+  };
+
+  const handleSkip = () => {
+    updateLotStatus('Ready');
+    updateAggregation({
+      status: 'skipped',
+      isAggregated: false,
+      aggregatedQuantity: currentLot.quantity,
+      farmerShareRatio: 1,
+      estimatedSavings: 0,
+      matchedFarmerCount: 0
+    });
+    router.push('/matching');
+  };
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight text-gray-900 flex items-center gap-3">
-          <Users className="w-8 h-8 text-blue-600" />
-          FPO Smart Aggregation
-        </h1>
-        <p className="text-gray-500 mt-2 max-w-2xl">
-          Combine your lot with nearby compatible farmers to unlock heavy-duty transport rates and access institutional bulk buyers.
-        </p>
+    <div className="max-w-5xl mx-auto p-4 md:p-6 lg:p-8">
+      <div className="mb-10 text-center">
+        <h1 className="text-3xl font-extrabold tracking-tight text-gray-900 mb-2">FPO Smart Aggregation</h1>
+        <p className="text-gray-500 font-medium">Combine compatible nearby lots to optimize logistics and reduce transport costs per quintal.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 flex flex-col gap-6">
-          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
-            <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <LayoutDashboard className="w-5 h-5 text-gray-400" />
-              Prototype Network — Nearby Farmers
-            </h3>
-            <div className="bg-blue-50 text-blue-800 p-3 rounded-lg text-xs flex gap-2 mb-6">
-              <Info className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>These are demo network data nodes to demonstrate the FPO functionality. They are not official government records.</span>
+        {/* Matches Panel */}
+        <div className="lg:col-span-1 flex flex-col gap-4">
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Your Lot</p>
+              <h3 className="text-2xl font-black text-gray-900">{currentLot.quantity} {currentLot.unit}</h3>
+              <p className="text-sm font-semibold text-gray-600 mt-1">{currentLot.commodity}</p>
             </div>
-
-            <div className="space-y-4">
-              {/* Current User's Lot */}
-              <div className="border-2 border-green-200 bg-green-50 rounded-lg p-4 flex items-center justify-between">
-                <div>
-                  <span className="text-xs font-bold uppercase tracking-wider text-green-700 mb-1 block">Your Lot</span>
-                  <h4 className="font-bold text-gray-900">{currentLot.commodity} — Grade {currentLot.quality.grade}</h4>
-                  <p className="text-sm text-gray-600">Origin: {currentLot.district}</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-xl font-bold text-gray-900">{currentLot.quantity}</span>
-                  <span className="text-sm text-gray-500 ml-1">{currentLot.unit}</span>
-                </div>
-              </div>
-
-              {/* Compatible Lots */}
-              {compatibleLots.map(lot => {
-                const isSelected = selectedLots.has(lot.id);
-                return (
-                  <div 
-                    key={lot.id} 
-                    onClick={() => toggleLot(lot.id)}
-                    className={`border rounded-lg p-4 flex items-center justify-between cursor-pointer transition-colors ${isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-200'}`}
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className={`w-6 h-6 rounded border flex items-center justify-center shrink-0 ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 bg-white'}`}>
-                        {isSelected && <CheckCircle2 className="w-4 h-4" />}
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-gray-900">{lot.farmerName}</h4>
-                        <p className="text-sm text-gray-500 flex items-center gap-2">
-                          <span>{lot.distanceKm} km away</span>
-                          <span>•</span>
-                          <span>Grade {lot.qualityGrade}</span>
-                        </p>
-                      </div>
+            <div className="p-5">
+              <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center justify-between">
+                <span>Nearby Compatible Lots</span>
+                <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100">{matches.length} found</span>
+              </h4>
+              <div className="space-y-3">
+                {matches.map(m => (
+                  <div key={m.id} className="flex justify-between items-center p-3 border border-gray-100 rounded-xl bg-gray-50/50">
+                    <div>
+                      <p className="font-bold text-gray-900 text-sm">Farmer {m.id}</p>
+                      <p className="text-[10px] font-semibold text-gray-500 flex items-center gap-1 mt-0.5"><Users className="w-3 h-3"/> {m.distance} km away</p>
                     </div>
                     <div className="text-right">
-                      <span className="text-lg font-bold text-gray-900">{lot.quantity}</span>
-                      <span className="text-xs text-gray-500 ml-1">{lot.unit}</span>
-                      <div className="text-[10px] uppercase font-bold text-blue-600 mt-1">
-                        {lot.compatibilityScore >= 80 ? 'High Match' : 'Match'}
-                      </div>
+                      <p className="font-bold text-gray-900">{m.quantity} {currentLot.unit}</p>
                     </div>
                   </div>
-                );
-              })}
+                ))}
+              </div>
+              <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Potential Volume</span>
+                <span className="text-xl font-black text-green-700">{aggregatedQuantity} {currentLot.unit}</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="lg:col-span-1">
-          <div className="bg-white border-2 border-blue-100 rounded-xl shadow-sm p-6 sticky top-24">
-            <h3 className="font-bold text-gray-900 mb-6 border-b pb-2 flex items-center gap-2">
-              <TrendingDown className="w-5 h-5 text-blue-600" /> Logistics Economics
-            </h3>
+        {/* Economics Panel */}
+        <div className="lg:col-span-2 flex flex-col gap-6">
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 md:p-8 relative overflow-hidden">
+             <div className="absolute top-0 right-0 p-6 opacity-5"><Users className="w-32 h-32" /></div>
+             <h3 className="text-lg font-bold text-gray-900 tracking-tight mb-8">Transport Cost Comparison</h3>
+             
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 relative z-10">
+               {/* Individual */}
+               <div className="bg-gray-50 border border-gray-200 rounded-xl p-5">
+                 <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4">Individual Transport</p>
+                 <div className="flex items-end gap-2 mb-4">
+                   <span className="text-3xl font-black text-gray-900">{formatINR(individualCost)}</span>
+                 </div>
+                 <div className="space-y-2 text-sm text-gray-600 font-medium">
+                   <div className="flex justify-between border-b border-gray-200 pb-2"><span>Vehicle Capacity</span><span>{truckCapacityQuintals} {currentLot.unit}</span></div>
+                   <div className="flex justify-between border-b border-gray-200 pb-2"><span>Vehicles Required</span><span>{individualTrucks}</span></div>
+                   <div className="flex justify-between"><span>Cost per trip</span><span>{formatINR(costPerTruck)}</span></div>
+                 </div>
+               </div>
 
-            <div className="space-y-6">
-              <div>
-                <p className="text-sm text-gray-500 flex justify-between mb-1">
-                  <span>Your Individual Transport</span>
-                  <span className="font-medium text-gray-900">₹{economics.estimatedIndividualCost.toLocaleString('en-IN')}</span>
-                </p>
-                <p className="text-xs text-gray-400">Based on {currentLot.quantity} {currentLot.unit}</p>
-              </div>
+               {/* Aggregated */}
+               <div className="bg-green-50 border border-green-200 rounded-xl p-5 relative shadow-sm">
+                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-green-500 text-white text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full shadow-sm">Recommended</div>
+                 <p className="text-[10px] font-bold text-green-800 uppercase tracking-widest mb-4">Aggregated Transport (Your Share)</p>
+                 <div className="flex items-end gap-2 mb-4">
+                   <span className="text-3xl font-black text-green-700">{formatINR(farmerAggregatedCost)}</span>
+                 </div>
+                 <div className="space-y-2 text-sm text-green-800 font-medium">
+                   <div className="flex justify-between border-b border-green-200/50 pb-2"><span>Total Volume</span><span>{aggregatedQuantity} {currentLot.unit}</span></div>
+                   <div className="flex justify-between border-b border-green-200/50 pb-2"><span>Total Vehicles Required</span><span>{aggregatedTrucks}</span></div>
+                   <div className="flex justify-between"><span>Your Cost Share</span><span>{Math.round(farmerShareRatio * 100)}%</span></div>
+                 </div>
+               </div>
+             </div>
 
-              {selectedLots.size > 0 && (
-                <div className="pt-4 border-t border-gray-100">
-                  <p className="text-sm text-gray-500 flex justify-between mb-1">
-                    <span>Aggregated Shared Cost</span>
-                    <span className="font-medium text-blue-700">₹{economics.estimatedAggregatedCost.toLocaleString('en-IN')}</span>
-                  </p>
-                  <p className="text-xs text-blue-500 mt-1">
-    Based on your share of {aggregatedQuantity} {currentLot.unit}. 
-    Requires {economics.vehiclesRequired} Heavy Truck(s) (15 Tonnes each).
-   </p>
+             <div className="bg-gradient-to-r from-gray-900 to-green-900 rounded-xl p-6 flex flex-col sm:flex-row justify-between items-center gap-4 text-white shadow-lg relative z-10">
+                <div>
+                  <p className="text-xs font-bold text-green-300 uppercase tracking-widest mb-1">Estimated Savings</p>
+                  <p className="text-3xl font-black">{formatINR(estimatedSavings)}</p>
                 </div>
-              )}
-
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <p className="text-sm text-green-800 font-medium mb-1">Estimated Savings</p>
-                <p className="text-3xl font-bold text-green-700">
-                  ₹{economics.estimatedSavings.toLocaleString('en-IN')}
-                </p>
-                <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                  <Truck className="w-3 h-3" /> Heavy-duty truck economics
-                </p>
-              </div>
-
-              <div className="border-t border-gray-100 pt-6">
-                <p className="text-sm font-medium text-gray-700 mb-4">Total FPO Volume</p>
-                <p className="text-3xl font-bold text-gray-900 mb-1">{aggregatedQuantity} <span className="text-lg font-normal text-gray-500">{currentLot.unit}</span></p>
-                <p className="text-sm text-blue-600 font-medium flex items-center gap-1">
-                  <ShieldCheck className="w-4 h-4" /> Unlocks 3 Additional Bulk Buyers
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-8 flex flex-col gap-3">
-              <button 
-                onClick={handleConfirm} 
-                disabled={selectedLots.size === 0}
-                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white py-3 rounded-lg font-bold transition-colors shadow-sm flex justify-center items-center gap-2"
-              >
-                Create FPO Bulk Lot <ArrowRight className="w-4 h-4" />
-              </button>
-              <button 
-                onClick={handleSkip} 
-                className="w-full bg-white hover:bg-gray-50 border border-gray-200 text-gray-600 py-3 rounded-lg font-bold transition-colors"
-              >
-                Skip, Sell Individually
-              </button>
-            </div>
-            
-            <p className="text-[10px] text-gray-400 text-center mt-4">
-              *Logistics estimates calculated based on standard volume thresholds.
-            </p>
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                  <button 
+                    onClick={handleSkip}
+                    disabled={isAggregating}
+                    className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-lg font-bold transition-colors border border-white/20"
+                  >
+                    Skip
+                  </button>
+                  <button 
+                    onClick={handleAggregrate}
+                    disabled={isAggregating}
+                    className="px-8 py-3 bg-green-500 hover:bg-green-400 text-gray-900 rounded-lg font-black transition-colors shadow-md flex items-center justify-center gap-2"
+                  >
+                    {isAggregating ? 'Processing...' : 'Confirm Aggregation'}
+                  </button>
+                </div>
+             </div>
           </div>
         </div>
       </div>
     </div>
   );
 }
-
-

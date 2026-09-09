@@ -1,10 +1,12 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useMemo } from 'react';
 import { MarketPriceRecord, ProviderMetadata } from '@/types/market-data';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, BrainCircuit, ArrowRight, AlertCircle, Calendar, TrendingUp, TrendingDown, Activity, MapPin, Search } from 'lucide-react';
-import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { formatINR } from '@/utils/economics';
+import { formatDateTime } from '@/utils/date';
+import { ShieldCheck, BrainCircuit, ArrowRight, AlertCircle, Calendar, TrendingUp, TrendingDown, Activity, MapPin, Search, LineChart, PackageSearch, Database } from 'lucide-react';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LineChart as RechartsLine, Line } from 'recharts';
 import Link from 'next/link';
 
 interface MarketDashboardProps {
@@ -16,9 +18,9 @@ interface MarketDashboardProps {
 export function MarketDashboard({ initialRecords, metadata, error }: MarketDashboardProps) {
   const router = useRouter();
 
-  // NOTE: export function MarketDashboard({  initialRecords, metadata, error }: MarketDashboardProps) {
   const [commodity, setCommodity] = useState<string>('All');
   const [state, setState] = useState<string>('All');
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   const commodities = useMemo(() => {
     const set = new Set(initialRecords.map(r => r.commodity));
@@ -35,311 +37,241 @@ export function MarketDashboard({ initialRecords, metadata, error }: MarketDashb
   }, [initialRecords, commodity]);
 
   const filteredRecords = useMemo(() => {
-    return initialRecords.filter(r => {
-      if (commodity !== 'All' && r.commodity !== commodity) return false;
-      if (state !== 'All' && r.state !== state) return false;
-      return true;
+    let filtered = initialRecords;
+    if (commodity !== 'All') filtered = filtered.filter(r => r.commodity === commodity);
+    if (state !== 'All') filtered = filtered.filter(r => r.state === state);
+    if (searchQuery.trim() !== '') {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(r => 
+        r.market.toLowerCase().includes(q) || 
+        r.district.toLowerCase().includes(q) || 
+        r.commodity.toLowerCase().includes(q)
+      );
+    }
+    // Sort by latest date, then highest modal price
+    return filtered.sort((a, b) => {
+      const dateA = new Date(a.date).getTime();
+      const dateB = new Date(b.date).getTime();
+      if (dateA !== dateB) return dateB - dateA;
+      return b.modalPrice - a.modalPrice;
     });
-  }, [initialRecords, commodity, state]);
+  }, [initialRecords, commodity, state, searchQuery]);
 
-  const formatDate = (dateString?: string | null) => {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return 'N/A';
-    return date.toISOString().split('T')[0];
-  };
-
-  const maxDate = initialRecords.length > 0 
-    ? new Date(Math.max(...initialRecords.map(r => new Date(r.date).getTime()))).toISOString().split('T')[0]
-    : 'N/A';
-
-  const bestModalPrice = filteredRecords.length > 0 ? Math.max(...filteredRecords.map(r => r.modalPrice)) : 0;
+  // All commodities stats
+  const totalMarkets = new Set(initialRecords.map(r => r.market)).size;
+  const totalCommodities = new Set(initialRecords.map(r => r.commodity)).size;
   
-  const distinctMarkets = new Set(filteredRecords.map(r => r.market)).size;
-  const distinctCommodities = new Set(filteredRecords.map(r => r.commodity)).size;
-  
-  const avgPrice = filteredRecords.length > 0 
-    ? filteredRecords.reduce((sum, r) => sum + r.modalPrice, 0) / filteredRecords.length 
-    : 0;
+  // Selected commodity stats
+  const avgPrice = useMemo(() => {
+    if (filteredRecords.length === 0) return 0;
+    return filteredRecords.reduce((sum, r) => sum + r.modalPrice, 0) / filteredRecords.length;
+  }, [filteredRecords]);
 
-    const topMarkets = useMemo(() => {
-    if (commodity === 'All') return [];
-    return [...filteredRecords]
-      .sort((a, b) => b.modalPrice - a.modalPrice)
-      .slice(0, 5)
-      .map(r => ({
-        name: r.market,
-        price: r.modalPrice,
-        state: r.state
-      }));
-  }, [filteredRecords, commodity]);
+  const minPrice = useMemo(() => {
+    if (filteredRecords.length === 0) return 0;
+    return Math.min(...filteredRecords.map(r => r.minPrice || r.modalPrice));
+  }, [filteredRecords]);
 
-  const opportunityAnalysis = useMemo(() => {
-    if (filteredRecords.length === 0) return [];
-    
-    return [...filteredRecords].map(r => {
-      let pseudoDistanceKm = 0;
-      if (r.state !== state && state !== 'All') pseudoDistanceKm = 300;
-      else pseudoDistanceKm = 50 + (r.market.length * 5); 
+  const maxPrice = useMemo(() => {
+    if (filteredRecords.length === 0) return 0;
+    return Math.max(...filteredRecords.map(r => r.maxPrice || r.modalPrice));
+  }, [filteredRecords]);
 
-      const estimatedTransport = Math.max(50, pseudoDistanceKm * 2);
-      
-      return {
-        ...r,
-        estimatedTransport,
-        netRealization: r.modalPrice - estimatedTransport,
-        opportunityScore: ((r.modalPrice - estimatedTransport) / avgPrice) * 100
-      };
-    })
-    .sort((a, b) => b.opportunityScore - a.opportunityScore)
-    .slice(0, 10);
-  }, [filteredRecords, state, avgPrice]);
+  const chartData = useMemo(() => {
+    return filteredRecords.slice(0, 15).map(r => ({
+      market: r.market,
+      district: r.district,
+      modalPrice: r.modalPrice,
+      minPrice: r.minPrice || r.modalPrice,
+      maxPrice: r.maxPrice || r.modalPrice
+    }));
+  }, [filteredRecords]);
 
   return (
-    <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div className="flex flex-col p-4 md:p-6 max-w-7xl mx-auto space-y-6 bg-gray-50/50 min-h-screen">
+      
+      {/* Header section */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Market Intelligence</h1>
-          <p className="text-gray-500 mt-1">Live market data sourced directly from AGMARKNET.</p>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="bg-green-100 text-green-800 text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wide uppercase border border-green-200 flex items-center gap-1">
+              <Database className="w-3 h-3" /> AGMARKNET
+            </span>
+            <span className="text-xs text-gray-500 font-medium">Last synced: {metadata.lastSyncTime ? formatDateTime(metadata.lastSyncTime, true) : 'Not available'}</span>
+          </div>
+          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-gray-900">Market Intelligence</h1>
+          <p className="text-gray-500 text-sm mt-1">Latest Government Market Observations across India</p>
         </div>
-        <div className="flex items-center gap-2 bg-green-50 text-green-700 px-3 py-1.5 rounded-full text-sm font-bold border border-green-200">
-          <ShieldCheck className="w-4 h-4" />
-          Official Government Data
-        </div>
+        <button 
+          onClick={() => router.push('/sell-advisor')}
+          className="px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold flex items-center gap-2 transition-colors shadow-sm"
+        >
+          <BrainCircuit className="w-4 h-4" /> Go to AI Sell Advisor
+        </button>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl flex items-start gap-3">
-          <AlertCircle className="w-6 h-6 shrink-0 mt-0.5" />
+        <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl flex items-start gap-3 shadow-sm">
+          <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-red-600" />
           <div>
-            <h3 className="font-bold">Government API Unavailable</h3>
+            <h3 className="font-bold">Data Source Unavailable</h3>
             <p className="text-sm mt-1">{error}</p>
           </div>
         </div>
       )}
 
-      {!metadata.isOfficial && (
-        <div className="bg-blue-50 border border-blue-200 text-blue-800 p-4 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <ShieldCheck className="w-6 h-6 shrink-0 mt-0.5" />
-            <div>
-              <h3 className="font-bold">Using Cached Government Data</h3>
-              <p className="text-sm mt-1">Data from Govt of India — AGMARKNET. The live API is temporarily unavailable.</p>
+      {/* Summary Metrics Panel */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+        <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Market Overview</h2>
+        
+        {commodity === 'All' ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Total Observations</p>
+              <p className="text-2xl font-black text-gray-900">{initialRecords.length}</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Markets Observed</p>
+              <p className="text-2xl font-black text-gray-900">{totalMarkets}</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Commodities Tracked</p>
+              <p className="text-2xl font-black text-gray-900">{totalCommodities}</p>
+            </div>
+            <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+              <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-1">Latest Data Source</p>
+              <p className="text-lg font-bold text-blue-900 truncate">data.gov.in (API)</p>
             </div>
           </div>
-          <div className="text-right shrink-0 bg-white px-3 py-1.5 rounded-lg border border-blue-100 shadow-sm">
-            <p className="text-xs font-semibold uppercase text-gray-500">Latest Data Date</p>
-            <p className="font-bold text-gray-900">{maxDate}</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
+            <div className="bg-green-50 rounded-xl p-4 border border-green-100 md:col-span-2">
+               <p className="text-[10px] font-bold text-green-700 uppercase tracking-wider mb-1">Avg Modal Price</p>
+               <p className="text-3xl font-black text-green-800">{formatINR(avgPrice)}<span className="text-sm text-green-600 font-bold ml-1">/Qtl</span></p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+               <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Min Price</p>
+               <p className="text-lg font-bold text-gray-900">{formatINR(minPrice)}</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+               <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Max Price</p>
+               <p className="text-lg font-bold text-gray-900">{formatINR(maxPrice)}</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+               <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Records</p>
+               <p className="text-lg font-bold text-gray-900">{filteredRecords.length}</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+               <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Markets</p>
+               <p className="text-lg font-bold text-gray-900">{new Set(filteredRecords.map(r => r.market)).size}</p>
+            </div>
           </div>
-        </div>
-      )}
-
-      {!!metadata.isOfficial && !error && (
-        <div className="bg-green-50 border border-green-200 text-green-800 p-4 rounded-xl flex items-start gap-3">
-          <ShieldCheck className="w-6 h-6 shrink-0 mt-0.5" />
-          <div>
-            <h3 className="font-bold">Live Government Data Active</h3>
-            <p className="text-sm mt-1 opacity-80">No synthetic prices are being displayed.</p>
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-wrap gap-4 p-4 bg-white border border-gray-200 rounded-xl shadow-sm">
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-gray-500 uppercase">Commodity</label>
-          <select 
-            value={commodity} 
-            onChange={e => { setCommodity(e.target.value); setState('All'); }}
-            className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-green-500 focus:border-green-500 min-w-[150px]"
-          >
-            {commodities.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-gray-500 uppercase">State</label>
-          <select 
-            value={state} 
-            onChange={e => setState(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-green-500 focus:border-green-500 min-w-[150px]"
-            disabled={commodity === 'All'}
-          >
-            {states.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
+        )}
       </div>
 
-      {filteredRecords.length === 0 && !error ? (
-        <div className="flex flex-col items-center justify-center p-12 bg-gray-50 border border-gray-200 rounded-xl">
-          <Calendar className="w-12 h-12 text-gray-400 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900">No matching government records.</h3>
-          <p className="text-sm text-gray-500 mt-1">Try adjusting your filters.</p>
+      {/* Filters */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 flex flex-col md:flex-row gap-4">
+        <div className="flex-1 relative">
+          <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+          <input 
+            type="text"
+            placeholder="Search by market, district, or commodity..."
+            className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-green-500 focus:outline-none transition-shadow"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
         </div>
-      ) : filteredRecords.length > 0 ? (
-        <div className="flex flex-col gap-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            
-            {commodity === 'All' ? (
-              <>
-                <div className="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Markets Observed</p>
-                      <h3 className="text-3xl font-bold mt-2 text-blue-700">{distinctMarkets}</h3>
-                    </div>
-                    <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
-                      <MapPin className="w-5 h-5" />
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-4">Across active states</p>
-                </div>
-                <div className="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Commodities Observed</p>
-                      <h3 className="text-3xl font-bold mt-2 text-green-700">{distinctCommodities}</h3>
-                    </div>
-                    <div className="p-2 bg-green-100 rounded-lg text-green-600">
-                      <Activity className="w-5 h-5" />
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-4">Currently trading</p>
-                </div>
-                <div className="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Total Price Observations</p>
-                      <h3 className="text-3xl font-bold mt-2 text-gray-800">{filteredRecords.length}</h3>
-                    </div>
-                    <div className="p-2 bg-gray-100 rounded-lg text-gray-600">
-                      <Search className="w-5 h-5" />
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-4">Source: Govt Data</p>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Best Modal Price</p>
-                      <h3 className="text-3xl font-bold mt-2 text-green-700">₹{bestModalPrice.toFixed(0)}</h3>
-                    </div>
-                    <div className="p-2 bg-green-100 rounded-lg text-green-600">
-                      <TrendingUp className="w-5 h-5" />
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-4">Per quintal (Source: Govt Data)</p>
-                </div>
-                <div className="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Average Price</p>
-                      <h3 className="text-3xl font-bold mt-2 text-gray-800">₹{avgPrice.toFixed(0)}</h3>
-                    </div>
-                    <div className="p-2 bg-gray-100 rounded-lg text-gray-600">
-                      <Activity className="w-5 h-5" />
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-4">Per quintal (across {distinctMarkets} markets)</p>
-                </div>
-                <div className="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Markets Observed</p>
-                      <h3 className="text-3xl font-bold mt-2 text-blue-700">{distinctMarkets}</h3>
-                    </div>
-                    <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
-                      <MapPin className="w-5 h-5" />
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-4">For {commodity}</p>
-                </div>
-              </>
-            )}
+        <select 
+          className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-green-500 focus:outline-none"
+          value={commodity}
+          onChange={(e) => setCommodity(e.target.value)}
+        >
+          {commodities.map(c => <option key={c} value={c}>{c === 'All' ? 'All Commodities' : c}</option>)}
+        </select>
+        <select 
+          className="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-green-500 focus:outline-none"
+          value={state}
+          onChange={(e) => setState(e.target.value)}
+        >
+          {states.map(s => <option key={s} value={s}>{s === 'All' ? 'All States' : s}</option>)}
+        </select>
+      </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* Market List */}
+        <div className="lg:col-span-2 flex flex-col gap-4">
+          <h3 className="text-sm font-bold text-gray-900 tracking-tight px-1 flex items-center gap-2">
+            <Activity className="w-4 h-4 text-green-600" />
+            Market Activity Board
+          </h3>
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="max-h-[600px] overflow-y-auto scrollbar-thin divide-y divide-gray-100">
+              {filteredRecords.length === 0 ? (
+                <div className="p-8 text-center text-gray-500 flex flex-col items-center">
+                  <PackageSearch className="w-8 h-8 text-gray-300 mb-3" />
+                  <p className="font-medium text-sm">No market observations found matching your filters.</p>
+                </div>
+              ) : (
+                filteredRecords.map((record, idx) => (
+                  <div key={idx} className="p-4 hover:bg-green-50/50 transition-colors flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-bold px-2 py-0.5 rounded border bg-gray-50 border-gray-200 text-gray-600">{record.commodity}</span>
+                        {record.variety && <span className="text-[10px] text-gray-500 font-medium truncate max-w-[120px]">{record.variety}</span>}
+                      </div>
+                      <h4 className="text-base font-bold text-gray-900 leading-tight">{record.market}</h4>
+                      <div className="flex items-center text-xs text-gray-500 mt-1 gap-3">
+                        <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {record.district}, {record.state}</span>
+                        <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {record.date}</span>
+                      </div>
+                    </div>
+                    <div className="text-left sm:text-right bg-gray-50 sm:bg-transparent p-3 sm:p-0 rounded-lg sm:rounded-none border border-gray-100 sm:border-none">
+                      <p className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-0.5">Modal Price</p>
+                      <p className="text-xl font-black text-green-700">{formatINR(record.modalPrice)}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{formatINR(record.minPrice || record.modalPrice)} - {formatINR(record.maxPrice || record.modalPrice)}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
+        </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col h-[496px]">
-              <div className="p-6 border-b border-gray-100 shrink-0">
-                <h3 className="font-bold text-lg text-gray-800">
-                  {commodity === 'All' ? 'Market Price Comparison (Top Observations)' : `${commodity} Modal Price Comparison — Top Markets`}
-                </h3>
-              </div>
-              <div className="p-6 flex-1 min-h-0">
-  {commodity === 'All' ? (
-    <div className="flex items-center justify-center h-full text-gray-500">
-      Select a specific commodity to view its top performing markets.
-    </div>
-  ) : (
-    <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={topMarkets} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" tickFormatter={(v) => `₹${v}`} />
-                    <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 12 }} />
-                    <Tooltip cursor={{fill: '#f3f4f6'}} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} formatter={(value: any) => [`₹${value}`, 'Modal Price']} />
-                    <Bar dataKey="price" fill="#16a34a" radius={[0, 4, 4, 0]} />
+        {/* Charts & Analytics */}
+        <div className="flex flex-col gap-6">
+          {commodity !== 'All' && filteredRecords.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+              <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <LineChart className="w-4 h-4 text-green-600" />
+                Top Markets Comparison
+              </h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData.slice(0,5)} layout="vertical" margin={{ top: 5, right: 10, left: 40, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f0f0f0" />
+                    <XAxis type="number" tick={{fontSize: 10, fill: '#6b7280'}} tickFormatter={(v) => `₹${v/1000}k`} />
+                    <YAxis dataKey="market" type="category" tick={{fontSize: 10, fill: '#374151'}} width={80} />
+                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                    <Tooltip cursor={{fill: '#f3f4f6'}} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} formatter={(val: any) => formatINR(val)} />
+                    <Bar dataKey="modalPrice" fill="#16a34a" radius={[0, 4, 4, 0]} barSize={20} />
                   </BarChart>
                 </ResponsiveContainer>
-                )}</div>
+              </div>
             </div>
+          )}
 
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col h-[496px]">
-              <div className="p-6 pb-2 shrink-0">
-                <h3 className="font-bold text-lg mb-1 text-gray-800">Market Opportunities</h3>
-                <p className="text-xs text-gray-500">Compares price, recent trends, demand indicators and estimated transport cost.</p>
-              </div>
-              
-              <div className="flex flex-col gap-3 overflow-y-auto px-6 pb-6">
-                {opportunityAnalysis.map((opp, idx) => (
-                  <div key={idx} className="border border-gray-100 rounded-lg p-4 hover:border-green-300 hover:shadow-sm transition-all bg-gray-50 flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center shrink-0 text-green-700 font-bold text-sm">
-                      {idx + 1}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-bold text-gray-900">{opp.market}</h4>
-                          <p className="text-xs text-gray-500 flex items-center gap-1"><MapPin className="w-3 h-3" /> {opp.state}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-lg font-bold text-green-700">₹{opp.modalPrice}</p>
-                          <p className="text-[10px] text-gray-500 uppercase">{opp.commodity}</p>
-                        </div>
-                      </div>
-                      
-                      <div className="mt-3 pt-3 border-t border-gray-200 flex justify-between items-center">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] text-gray-500 uppercase font-semibold">Expected Net Realization</span>
-                          <span className="font-bold text-sm text-gray-800">₹{opp.netRealization.toFixed(0)}</span>
-                        </div>
-                        <span className="bg-green-100 text-green-800 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ml-2">Market Opportunity Score: {opp.opportunityScore.toFixed(0)}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+          <div className="bg-gradient-to-br from-green-800 to-green-900 rounded-2xl shadow-sm border border-green-700 p-6 text-white relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 opacity-20"><BrainCircuit className="w-16 h-16" /></div>
+            <h3 className="text-lg font-bold mb-2 relative z-10">AI Sell Advisor</h3>
+            <p className="text-sm text-green-100 mb-6 relative z-10">We can analyze this data to find your most profitable selling window and buyer match.</p>
+            <button onClick={() => router.push('/sell-advisor')} className="w-full bg-white text-green-900 font-bold py-2.5 px-4 rounded-xl shadow hover:bg-green-50 transition-colors relative z-10">
+              Run Market Analysis
+            </button>
           </div>
         </div>
-      ) : null}
 
-      <div className="mt-12 bg-green-900 rounded-2xl p-8 md:p-12 text-center text-white shadow-lg relative overflow-hidden">
-        <div className="relative z-10 max-w-2xl mx-auto">
-          <BrainCircuit className="w-12 h-12 mx-auto mb-4 text-green-400" />
-          <h2 className="text-3xl font-bold mb-4">Let our Decision Engine do the math.</h2>
-          <p className="text-green-100 mb-8 md:text-lg">
-            Not sure where to sell? Our AI Sell Advisor analyzes these live government prices, calculates estimated transport costs from your farm, and recommends the most profitable market.
-          </p>
-          <button onClick={() => router.push('/sell-advisor')} className="bg-white text-green-900 hover:bg-green-50 px-8 py-4 rounded-xl font-bold transition-colors inline-flex items-center gap-2 shadow-xl">
-            Get AI Sell Recommendation <ArrowRight className="w-5 h-5" />
-          </button>
-        </div>
-        <div className="absolute top-0 left-0 right-0 bottom-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at center, #4ade80 0%, transparent 70%)'}}></div>
       </div>
     </div>
   );
 }
-
-

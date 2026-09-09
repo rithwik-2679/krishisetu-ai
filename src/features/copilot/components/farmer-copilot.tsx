@@ -4,7 +4,7 @@ import { formatINR } from '@/utils/economics';
 import React, { useState, useRef, useEffect } from 'react';
 import { useLot } from '@/contexts/lot-context';
 import { useLanguage } from '@/contexts/language-context';
-import { Bot, X, Send, Minimize2, Maximize2 } from 'lucide-react';
+import { Bot, X, Send, Minimize2, Maximize2, BrainCircuit, ChevronUp, ChevronDown } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 export function FarmerCopilot() {
@@ -25,18 +25,26 @@ export function FarmerCopilot() {
   }, [messages, isOpen, isMinimized]);
 
   useEffect(() => {
-    // Initial greeting based on state
     if (messages.length === 0 && isOpen) {
        const hasLot = currentLot && currentLot.commodity;
-       let greeting = "Hello! I am your KrishiSetu Assistant. How can I help you today?";
-       if (language === 'hi') greeting = "नमस्ते! मैं आपका कृषিসেतु सहायक हूँ। मैं आपकी कैसे मदद कर सकता हूँ?";
-       if (language === 'te') greeting = "నమస్కారం! నేను మీ కృషిసేతు సహాయకుడిని. నేను మీకు ఎలా సహాయపడగలను?";
-       
+       let greeting = language === 'hi' ? 'नमस्ते! मैं कृषिसेतु एआई हूं।' : 
+                      language === 'te' ? 'నమస్కారం! నేను కృషిసేతు AI ని.' : 
+                      'Hello! I am KrishiSetu AI.';
+                      
        if (hasLot) {
-          greeting += ' I see you are currently working on a lot of ' + currentLot.commodity + '.';
+          if (currentLot.dealConfirmed) {
+            greeting += ` Your deal for ${currentLot.commodity} is confirmed. Should we arrange transport?`;
+          } else if (currentLot.selectedBuyerId) {
+            greeting += ` You are negotiating with ${currentLot.selectedBuyerId}. I can help you evaluate their offer.`;
+          } else {
+            greeting += ` I see your ${currentLot.commodity} lot is ready. Would you like to check the weather or find buyers?`;
+          }
+       } else {
+          greeting += ' Ask me about market prices, selling strategy, weather, or how to create a digital lot.';
        }
        
-       setMessages([{ role: 'bot', text: greeting }]);
+       // eslint-disable-next-line react-hooks/set-state-in-effect
+       setTimeout(() => setMessages([{ role: 'bot', text: greeting }]), 0);
     }
   }, [isOpen, currentLot, language, messages.length]);
 
@@ -46,78 +54,86 @@ export function FarmerCopilot() {
     setInput('');
     setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
     
-    // Deterministic fallback response based on keywords and state
     setTimeout(() => {
-      
-      
       let reply = "I can currently help with market prices, selling strategy, weather, storage, quality, buyers, negotiation, logistics and payment tracking.";
-      let actions = [{label: 'View Features', route: '/'}];
+      let actions: {label: string, route: string}[] = [];
       const lower = userMsg.toLowerCase();
       
-      if (lower.includes('price') || lower.includes('rate') || lower.includes('bhav') || lower.includes('daam')) {
+      if (lower.includes('price') || lower.includes('rate')) {
          if (currentLot?.commodity) {
-            reply = `The current reference market price for ${currentLot.commodity} is roughly ${formatINR(currentLot.referenceGovPrice || 2000)}/quintal. Would you like me to help you find a buyer?`;
+            reply = `The current reference market price for ${currentLot.commodity} is roughly ${formatINR(currentLot.expectedPrice || 2000)}/quintal. Would you like to find a buyer?`;
             actions = [{label: 'Compare Markets', route: '/market-intelligence'}, {label: 'Find Buyers', route: '/matching'}];
          } else {
-            reply = "You can check the latest government prices in the Market Intelligence tab, or tell me your crop.";
+            reply = "You can check the latest government prices in the Market Intelligence tab.";
             actions = [{label: 'Compare Markets', route: '/market-intelligence'}];
          }
-      } else if (lower.includes('weather') || lower.includes('rain') || lower.includes('mausam')) {
-         reply = "Based on IMD data for your region, there is a moderate risk of rain. I recommend harvesting and arranging covered transport soon.";
-         actions = [{label: 'Open Sell Strategy', route: '/sell-advisor'}];
-      } else if (lower.includes('transport') || lower.includes('truck') || lower.includes('logistics')) {
-         reply = "You can aggregate your produce with nearby farmers through an FPO to reduce transport costs by up to 40%. Check the FPO Aggregation step.";
-         actions = [{label: 'Arrange Transport', route: '/logistics'}, {label: 'View Aggregation', route: '/aggregation'}];
-      } else if (lower.includes('store') || lower.includes('wait') || lower.includes('hold')) {
-         if (currentLot?.commodity) {
-           reply = `Storing your ${currentLot.commodity} for 5 days in a nearby warehouse would cost roughly ${formatINR(100)}/qtl. Based on current trends, it could increase your net realization slightly, but weather risk is moderate.`;
-           actions = [{label: 'Check Storage', route: '/sell-advisor'}];
-         } else {
-           reply = "I need to know your crop first. Please select one in Sell Advisor.";
-           actions = [{label: 'Open Sell Strategy', route: '/sell-advisor'}];
-         }
-      } else if (lower.includes('negotiate') || lower.includes('bargain') || lower.includes('offer')) {
-         if (currentLot?.offerDetails && currentLot?.selectedBuyerId) {
-            reply = `The buyer's current offer is ${formatINR(currentLot.offerDetails.buyerPrice)}/qtl. Based on their historical negotiation patterns and your crop's A-grade quality, I recommend countering at ${formatINR(currentLot.offerDetails.buyerPrice + 50)}/qtl.`;
-            actions = [{label: 'View Offer', route: '/offers'}];
-         } else {
-            reply = "You aren't in an active negotiation yet. Find a match in the Buyer Directory to start one.";
-            actions = [{label: 'Find Buyers', route: '/matching'}];
-         }
+      } else if (lower.includes('weather') || lower.includes('store') || lower.includes('sell today')) {
+         reply = "Based on the 5-day forecast, there is moderate rain risk approaching. If you have storage, holding could improve prices slightly, but selling today is the safest option.";
+         actions = [{label: 'View AI Sell Strategy', route: '/sell-advisor'}];
+      } else if (lower.includes('logistics') || lower.includes('transport') || lower.includes('truck')) {
+         reply = "You can arrange aggregated transport through nearby FPOs to save costs, or book an individual truck.";
+         actions = [{label: 'Check FPO Aggregation', route: '/aggregation'}, {label: 'Book Transport', route: '/logistics'}];
+      } else if (lower.includes('buyer') || lower.includes('match')) {
+         reply = "We have matched your lot against our institutional buyer network based on your quantity, quality grade, and distance.";
+         actions = [{label: 'View Matches', route: '/matching'}];
+      } else if (lower.includes('negotiat') || lower.includes('offer')) {
+         reply = "You can submit counter-offers directly to the buyer. Ensure your counter is within 5-10% of their offer for the best chance of acceptance.";
+         actions = [{label: 'Go to Negotiation', route: '/offers'}];
       }
       
       setMessages(prev => [...prev, { role: 'bot', text: reply, actions }]);
-  
-
     }, 800);
   };
+
+  const handleSuggestion = (text: string) => {
+    setInput(text);
+    setTimeout(() => document.getElementById('copilot-send-btn')?.click(), 50);
+  };
+
+  const suggestions = currentLot 
+    ? ["Should I sell today or store?", "Which market is better?", "Which buyer is the best match?"]
+    : ["What are the current prices?", "How do I create a lot?", "Show me market trends"];
 
   if (!isOpen) {
     return (
       <button 
-        onClick={() => { setIsOpen(true); setIsMinimized(false); }}
-        className="fixed bottom-6 right-6 bg-green-600 hover:bg-green-700 text-white p-4 rounded-full shadow-xl transition-transform hover:scale-105 z-50 flex items-center gap-2"
+        onClick={() => setIsOpen(true)}
+        className="fixed bottom-6 right-6 bg-green-600 text-white rounded-full p-4 shadow-2xl hover:bg-green-700 transition-all hover:scale-105 z-50 flex items-center justify-center group"
       >
-        <Bot className="w-6 h-6" />
-        <span className="font-bold hidden md:inline">Ask AI Copilot</span>
+        <BrainCircuit className="w-7 h-7" />
+        <span className="max-w-0 overflow-hidden whitespace-nowrap group-hover:max-w-xs group-hover:ml-3 transition-all duration-300 font-bold ease-in-out">
+          Ask KrishiSetu AI
+        </span>
       </button>
     );
   }
 
   return (
-    <div className={`fixed right-6 bottom-6 bg-white border border-gray-200 shadow-2xl rounded-2xl z-50 flex flex-col transition-all duration-300 ${isMinimized ? 'w-72 h-14' : 'w-80 md:w-96 h-[500px]'}`}>
+    <div className={`fixed right-4 md:right-6 bottom-6 w-full max-w-[360px] md:max-w-[400px] bg-white border border-gray-200 rounded-2xl shadow-2xl z-50 flex flex-col transition-all duration-300 ${isMinimized ? 'h-14' : 'h-[600px] max-h-[85vh]'}`}>
+      
       {/* Header */}
-      <div className="bg-green-600 text-white p-3 rounded-t-2xl flex justify-between items-center cursor-pointer" onClick={() => setIsMinimized(!isMinimized)}>
-        <div className="flex items-center gap-2">
-          <Bot className="w-5 h-5" />
-          <span className="font-bold">KrishiSetu Copilot</span>
+      <div 
+        className="flex items-center justify-between bg-gradient-to-r from-green-700 to-green-600 text-white p-4 rounded-t-2xl cursor-pointer"
+        onClick={() => setIsMinimized(!isMinimized)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="bg-white/20 p-1.5 rounded-lg backdrop-blur-sm">
+             <BrainCircuit className="w-5 h-5" />
+          </div>
+          <div>
+             <h3 className="font-bold leading-none tracking-wide text-sm">KRISHISETU COPILOT</h3>
+             <p className="text-[10px] font-medium text-green-100 mt-1">{isMinimized ? 'Tap to expand' : 'AI Farm-to-Market Assistant'}</p>
+          </div>
         </div>
         <div className="flex items-center gap-1">
-          <button className="p-1 hover:bg-green-700 rounded" onClick={(e) => { e.stopPropagation(); setIsMinimized(!isMinimized); }}>
-            {isMinimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
+          <button className="p-1.5 hover:bg-white/20 rounded-lg transition-colors">
+            {isMinimized ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
-          <button className="p-1 hover:bg-green-700 rounded" onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}>
-            <X className="w-5 h-5" />
+          <button 
+            onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}
+            className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+          >
+            <X className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -125,34 +141,79 @@ export function FarmerCopilot() {
       {/* Body */}
       {!isMinimized && (
         <>
-          <div className="flex-1 p-4 overflow-y-auto bg-gray-50 flex flex-col gap-3">
+          <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gray-50/50 scrollbar-thin">
             {messages.map((m, i) => (
-              <div key={i} className={"flex " + (m.role === 'user' ? 'justify-end' : 'justify-start')}>
-                <div className={"max-w-[80%] p-3 rounded-xl text-sm " + (m.role === 'user' ? 'bg-green-600 text-white rounded-br-none' : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none shadow-sm')}>
-                  {m.text}
+              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] rounded-2xl p-4 shadow-sm text-sm ${
+                  m.role === 'user' 
+                    ? 'bg-blue-600 text-white rounded-br-none' 
+                    : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
+                }`}>
+                  {m.role === 'bot' && (
+                    <div className="flex items-center gap-1.5 mb-2 text-green-700">
+                      <BrainCircuit className="w-3.5 h-3.5" />
+                      <span className="text-[10px] font-bold uppercase tracking-widest">AI Response</span>
+                    </div>
+                  )}
+                  <p className="leading-relaxed">{m.text}</p>
+                  
+                  {/* Action Buttons */}
+                  {m.actions && m.actions.length > 0 && (
+                    <div className="mt-3 flex flex-col gap-2">
+                      {m.actions.map((act, actIdx) => (
+                        <button 
+                          key={actIdx}
+                          onClick={() => {
+                             router.push(act.route);
+                             setIsOpen(false);
+                          }}
+                          className="w-full text-center bg-gray-50 hover:bg-green-50 border border-gray-200 hover:border-green-300 text-green-700 font-bold py-2 px-3 rounded-xl transition-colors text-xs"
+                        >
+                          {act.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
+            {messages.length === 1 && (
+              <div className="mt-6 flex flex-col gap-2">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">Suggested Questions</p>
+                {suggestions.map((s, i) => (
+                  <button 
+                    key={i} 
+                    onClick={() => handleSuggestion(s)}
+                    className="text-left bg-white border border-gray-200 hover:border-green-300 hover:bg-green-50 px-4 py-2.5 rounded-xl text-xs font-semibold text-gray-600 transition-colors shadow-sm"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input */}
-          <div className="p-3 bg-white border-t border-gray-200 rounded-b-2xl flex gap-2">
-            <input 
-              type="text" 
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Ask about prices, weather, transport..."
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-            />
-            <button 
-              onClick={handleSend}
-              disabled={!input.trim()}
-              className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700 disabled:opacity-50"
-            >
-              <Send className="w-5 h-5" />
-            </button>
+          {/* Input Area */}
+          <div className="p-4 bg-white border-t border-gray-200 rounded-b-2xl">
+            <div className="relative flex items-center">
+              <input 
+                type="text"
+                placeholder="Ask about your sale..."
+                className="w-full pl-4 pr-12 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 text-sm font-medium transition-all"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+              />
+              <button 
+                id="copilot-send-btn"
+                onClick={handleSend}
+                disabled={!input.trim()}
+                className="absolute right-1.5 p-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </>
       )}

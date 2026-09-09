@@ -1,65 +1,38 @@
-﻿"use client";
+"use client";
 
 import React from 'react';
 import { formatINR } from '@/utils/economics';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useLot } from '@/contexts/lot-context';
+import { useLanguage } from '@/contexts/language-context';
 import { 
-  LineChart, 
-  BrainCircuit, 
-  PackagePlus, 
-  Users, 
-  Search, 
-  ArrowRight,
-  CheckCircle2,
-  Clock,
-  LayoutDashboard,
-  TrendingUp,
-  Truck,
-  CreditCard,
-  Building2
+  LineChart, BrainCircuit, PackagePlus, Users, Search, ArrowRight,
+  CheckCircle2, Clock, LayoutDashboard, TrendingUp, Truck, CreditCard,
+  Check, FileText, AlertCircle, PlayCircle, PlusCircle, Activity
 } from 'lucide-react';
 
-export default function CommandCenterPage() {
+export default function CommandCenter() {
   const router = useRouter();
-  const { currentLot, resetAll, clearLot } = useLot();
+  const { currentLot, isHydrated, clearLot } = useLot();
+  const { t } = useLanguage();
 
-  const getTimelineSteps = () => {
-    if (!currentLot) return [];
-    
-    const isAggregated = !!currentLot.fpoDetails?.isAggregated;
-    const hasBuyer = !!currentLot.selectedBuyerId;
-    const offerStatus = currentLot.offerDetails?.status;
-    const isDealConfirmed = offerStatus === 'Accepted';
-    const logTimeline = currentLot.logisticsDetails?.timeline || [];
-    const hasLogistics = logTimeline.some(t => t.status === 'Transport Arranged');
-    const isDispatched = logTimeline.some(t => t.status === 'Dispatched');
-    const isDelivered = logTimeline.some(t => t.status === 'Delivered');
-    const payTimeline = currentLot.paymentDetails?.timeline || [];
-    const isSettled = payTimeline.some(t => t.status === 'Payment Settled');
-    
-    const isComplete = isSettled && isDelivered && isDealConfirmed;
+  if (!isHydrated) return null;
 
-    const fpoDecisionMade = currentLot.fpoDetails !== undefined;
-    const isFpoSkipped = fpoDecisionMade && !isAggregated;
-    const fpoDone = isAggregated || isFpoSkipped;
+  const steps = [
+    { id: 'lot', label: 'Lot Created', done: !!currentLot, path: '/create-lot' },
+    { id: 'quality', label: 'Quality', done: !!currentLot?.quality, path: '/create-lot' },
+    { id: 'fpo', label: 'FPO Aggregation', done: currentLot?.fpoDetails?.isAggregated || currentLot?.fpoDetails?.status === 'skipped', path: '/aggregation', optional: true },
+    { id: 'matches', label: 'Buyer Match', done: !!currentLot?.selectedBuyerId, path: '/matching' },
+    { id: 'offers', label: 'Offers', done: !!currentLot?.offerDetails, path: '/offers' },
+    { id: 'deal', label: 'Deal Confirmed', done: !!currentLot?.dealConfirmed, path: '/offers' },
+    { id: 'logistics', label: 'Logistics', done: !!currentLot?.logisticsDetails?.status && currentLot.logisticsDetails.status !== 'Pending', path: '/logistics' },
+    { id: 'delivered', label: 'Delivered', done: currentLot?.logisticsDetails?.status === 'Delivered', path: '/logistics' },
+    { id: 'payment', label: 'Payment Settled', done: currentLot?.status === 'Payment Settled', path: '/payments' },
+  ];
 
-    return [
-      { id: 'created', label: 'Lot Created', done: true, current: false },
-      { id: 'fpo', label: isFpoSkipped ? 'FPO (Skipped)' : 'FPO Aggregation', done: fpoDone, current: !fpoDone && !hasBuyer && !isComplete },
-      { id: 'match', label: 'Buyer Matched', done: hasBuyer, current: fpoDone && !hasBuyer && !isComplete },
-      { id: 'negotiation', label: 'Negotiation', done: isDealConfirmed, current: hasBuyer && !isDealConfirmed && !isComplete },
-      { id: 'deal', label: 'Deal Confirmed', done: isDealConfirmed, current: false },
-      { id: 'logistics', label: 'Transport', done: hasLogistics, current: isDealConfirmed && !hasLogistics && !isComplete },
-      { id: 'delivery', label: 'Delivered', done: isDelivered, current: hasLogistics && !isDelivered && !isComplete },
-      { id: 'payment', label: 'Payment', done: isSettled, current: isDelivered && !isSettled && !isComplete },
-    ];
-  };
-
-  const steps = getTimelineSteps();
-  const isComplete = steps.every(s => s.done) || (currentLot?.status === 'Payment Settled');
-
+  const currentStepIndex = steps.findIndex(s => !s.done);
+  const isComplete = currentLot?.status === 'Payment Settled';
 
   const getSummaryMetrics = () => {
     if (!currentLot) return null;
@@ -70,239 +43,213 @@ export default function CommandCenterPage() {
     const logCost = currentLot.logisticsDetails?.estimatedCost || 0;
     const net = gross - logCost;
     
-    return {
-      qty: effQty,
-      isAggregated: !!currentLot.fpoDetails?.isAggregated,
-      savings,
-      price,
-      gross,
-      logCost,
-      net,
-      buyer: currentLot.selectedBuyerId ? 'Matched Buyer' : 'None',
-      deliveryStatus: currentLot.logisticsDetails?.status || 'Pending',
-      paymentStatus: currentLot.paymentDetails?.status || 'Pending'
-    };
+    return { qty: effQty, isAggregated: !!currentLot.fpoDetails?.isAggregated, savings, price, gross, logCost, net };
   };
 
   const metrics = getSummaryMetrics();
 
-  return (
-    <div className="max-w-6xl mx-auto p-4 md:p-8">
-      
-      <div className="bg-green-700 rounded-2xl p-6 md:p-10 text-white shadow-lg mb-8 relative overflow-hidden flex flex-col md:flex-row justify-between items-start gap-6">
-        <div className="relative z-10 max-w-2xl">
-          <div className="inline-block rounded-full bg-green-600/50 backdrop-blur-md px-3 py-1 text-xs font-bold tracking-wider text-green-100 uppercase mb-4 border border-green-500/50">
-            AGRICULTURAL MARKET PLATFORM
+  const renderNextActionBlock = () => {
+    if (isComplete) {
+      return (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-8 text-center shadow-sm">
+          <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+            <CheckCircle2 className="w-8 h-8 text-green-600" />
           </div>
-          <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight mb-4">
-            From Farm Gate to Best Market
-          </h1>
-          <p className="text-green-100 md:text-xl mb-6 max-w-xl">
-            Discover verified prices, find the best selling window, match with institutional buyers, and maximize your Expected Net Realization.
+          <h3 className="text-2xl font-bold text-gray-900 mb-2">Transaction Complete</h3>
+          <p className="text-gray-600 mb-6 max-w-md mx-auto">
+            Your produce has been delivered and the payment is settled. You can review the transaction history or start a new lot.
           </p>
+          <div className="flex items-center justify-center gap-4">
+            <button onClick={() => router.push('/my-lots')} className="px-5 py-2.5 bg-white border border-gray-300 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 transition-colors shadow-sm">
+              View Transaction
+            </button>
+            <button onClick={clearLot} className="px-5 py-2.5 bg-green-600 text-white rounded-lg text-sm font-bold hover:bg-green-700 transition-colors shadow-sm">
+              Create New Lot
+            </button>
+          </div>
+        </div>
+      );
+    }
 
-          {!currentLot && (
-            <div className="flex flex-col sm:flex-row gap-4">
-              <button 
-                onClick={() => router.push('/market-intelligence')}
-                className="bg-white text-green-800 hover:bg-green-50 px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"
-              >
-                <LineChart className="w-5 h-5" />
-                Explore Market Intelligence
+    const currentStep = currentStepIndex >= 0 ? steps[currentStepIndex] : null;
+    if (!currentStep) return null;
+
+    let actionLabel = "Continue to " + currentStep.label;
+    let actionDesc = "Please complete this step to move forward.";
+    if (currentStep.id === 'fpo') {
+      actionLabel = "Review FPO Aggregation";
+      actionDesc = "Combine your lot with nearby farmers to save on transport.";
+    } else if (currentStep.id === 'matches') {
+      actionLabel = "Review Buyer Matches";
+      actionDesc = "We found verified buyers matching your lot criteria.";
+    } else if (currentStep.id === 'offers' || currentStep.id === 'deal') {
+      actionLabel = "Review Offers";
+      actionDesc = "Negotiate and confirm a deal with your matched buyer.";
+    } else if (currentStep.id === 'logistics') {
+      actionLabel = "Arrange Transport";
+      actionDesc = "Your deal is confirmed. Coordinate logistics to the buyer facility.";
+    }
+
+    return (
+      <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
+        <div>
+          <h3 className="text-xs font-bold text-green-600 tracking-wider uppercase mb-1">Next Action</h3>
+          <h4 className="text-xl font-bold text-gray-900">{actionLabel}</h4>
+          <p className="text-sm text-gray-500 mt-1">{actionDesc}</p>
+        </div>
+        <button 
+          onClick={() => router.push(currentStep.path)}
+          className="w-full md:w-auto px-8 py-3.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-colors shadow-sm"
+        >
+          {actionLabel} <ArrowRight className="w-5 h-5" />
+        </button>
+      </div>
+    );
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto p-4 md:p-6 lg:p-8">
+      {/* Premium Hero */}
+      {!currentLot && (
+        <div className="bg-gradient-to-br from-green-900 to-gray-900 rounded-2xl p-8 md:p-14 text-white shadow-xl mb-8 relative overflow-hidden">
+          <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-green-400 via-transparent to-transparent"></div>
+          <div className="relative z-10 max-w-3xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-xs font-bold tracking-wider text-green-100 uppercase mb-6 backdrop-blur-sm shadow-sm">
+              <Activity className="w-4 h-4 text-green-400" />
+              India&apos;s Intelligent Farm-to-Market Platform
+            </div>
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight mb-5 leading-tight">
+              From Farm Gate to<br/>Best Selling Strategy
+            </h1>
+            <p className="text-gray-300 md:text-lg mb-8 max-w-2xl font-medium leading-relaxed">
+              Market intelligence, selling-window recommendations, quality evidence, buyer matching, negotiation, logistics, storage, and payment tracking in one connected workflow.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+              <button onClick={() => router.push('/market-intelligence')} className="w-full sm:w-auto px-6 py-3.5 bg-white text-green-900 hover:bg-gray-50 rounded-xl font-bold transition-colors shadow-lg flex items-center justify-center gap-2">
+                Explore Market Intelligence <ArrowRight className="w-5 h-5" />
               </button>
-              <button 
-                onClick={() => router.push('/create-lot')}
-                className="bg-green-600 border-2 border-green-500 text-white hover:bg-green-500 px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors"
-              >
-                <PackagePlus className="w-5 h-5" />
-                Create Digital Lot
+              <button onClick={() => router.push('/create-lot')} className="w-full sm:w-auto px-6 py-3.5 bg-green-800/50 hover:bg-green-800/70 border border-green-500/30 text-white rounded-xl font-bold transition-colors backdrop-blur-sm flex items-center justify-center gap-2">
+                <PlusCircle className="w-5 h-5" /> Create Digital Lot
               </button>
             </div>
-          )}
+          </div>
         </div>
-
-        <div className="relative z-20 flex flex-row md:flex-col gap-2 shrink-0 w-full md:w-auto">
-          <button onClick={() => clearLot()} className="flex-1 md:flex-none text-xs font-bold text-white hover:text-green-900 bg-white/20 hover:bg-white px-4 py-2.5 rounded shadow-sm transition-colors border border-white/40 text-center">Close Active Workspace</button>
-          <button onClick={() => resetAll()} className="flex-1 md:flex-none text-xs font-bold text-white hover:text-red-900 bg-red-500/80 hover:bg-red-400 px-4 py-2.5 rounded shadow-sm transition-colors border border-red-500 text-center">Reset Demo Data</button>
-        </div>
-        
-        <div className="absolute right-0 bottom-0 opacity-10 pointer-events-none translate-x-1/4 translate-y-1/4">
-          <LayoutDashboard className="w-96 h-96" />
-        </div>
-            </div>
-
-      {currentLot && metrics && (
-         <div className="grid grid-cols-2 md:grid-cols-5 bg-white border border-gray-200 rounded-xl shadow-sm mb-6 divide-y md:divide-y-0 md:divide-x divide-gray-100 overflow-hidden">
-            <div className="p-4 bg-gray-50/50 flex flex-col justify-center">
-               <p className="text-[10px] text-gray-500 font-bold uppercase mb-1 tracking-wider">Current Lot</p>
-               <p className="text-sm font-bold text-gray-900 truncate">{currentLot.commodity} � {currentLot.district || 'Location'}</p>
-               <p className="text-xs text-gray-500">{currentLot.quantity} {currentLot.unit} � Grade {currentLot.quality.grade}</p>
-            </div>
-            <div className="p-4 flex flex-col justify-center">
-               <p className="text-[10px] text-gray-500 font-bold uppercase mb-1 tracking-wider">Market Opportunity</p>
-               <div className="flex items-baseline gap-1">
-                 <span className="text-2xl font-black text-green-700">87</span>
-                 <span className="text-sm font-bold text-gray-400">/100</span>
-               </div>
-            </div>
-            <div className="p-4 flex flex-col justify-center">
-               <p className="text-[10px] text-gray-500 font-bold uppercase mb-1 tracking-wider">Weather Risk</p>
-               <div><span className="inline-block bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs font-bold border border-amber-200">Medium</span></div>
-            </div>
-            <div className="p-4 flex flex-col justify-center">
-               <p className="text-[10px] text-gray-500 font-bold uppercase mb-1 tracking-wider">Storage Advice</p>
-               <span className="text-sm font-bold text-gray-900 leading-tight">Sell within 2 days</span>
-            </div>
-            <div className="p-4 flex flex-col justify-center bg-green-50/30">
-               <p className="text-[10px] text-gray-500 font-bold uppercase mb-1 tracking-wider">Est. Net Realization</p>
-               <span className="text-xl font-black text-green-700">{formatINR(metrics.net)}</span>
-            </div>
-         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        <div className="lg:col-span-2">
-          <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <LayoutDashboard className="w-5 h-5 text-gray-400" />
-            Current Sale Journey
-          </h2>
-          
-          {currentLot && metrics ? (
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden mb-6">
-              <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex justify-between items-start">
-                <div>
-                  <h3 className="text-2xl font-bold text-gray-900">
-                    {currentLot.commodity} {currentLot.variety ? `(${currentLot.variety})` : ''}
-                  </h3>
-                  <p className="text-gray-500 mt-1">
-                    Effective Volume: <span className="font-bold text-gray-900">{metrics.qty} {currentLot.unit}</span> {metrics.isAggregated && <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded ml-1 font-medium border border-blue-100">FPO Aggregated</span>}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-50 text-green-700 text-xs font-bold border border-green-100">
-                    Active Transaction
-                  </span>
-                </div>
-              </div>
-
-              {isComplete && (
-                <div className="p-4 bg-green-50 border-b border-green-100 flex items-center gap-3">
-                  <div className="bg-green-500 rounded-full p-1"><CheckCircle2 className="w-5 h-5 text-white" /></div>
-                  <div>
-                    <h3 className="font-bold text-green-900">Transaction Complete</h3>
-                    <p className="text-sm text-green-800">Payment settled successfully. You can view this in My Lots or start a new transaction.</p>
-                  </div>
-                </div>
-              )}
-              <div className="p-6 grid grid-cols-2 md:grid-cols-4 gap-4 bg-white border-b border-gray-100">
-                <div>
-                  <p className="text-xs text-gray-500 font-semibold mb-1">Agreed Price</p>
-                  <p className="font-bold text-gray-900">{formatINR(metrics.price)}/{currentLot.unit}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 font-semibold mb-1">Gross Value</p>
-                  <p className="font-bold text-gray-900">{formatINR(metrics.gross)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 font-semibold mb-1">Logistics Cost</p>
-                  <p className="font-bold text-red-600">-{formatINR(metrics.logCost)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-green-700 font-semibold mb-1">Expected Net Realization</p>
-                  <p className="font-bold text-green-700 text-lg">{formatINR(metrics.net)}</p>
-                </div>
-              </div>
-
-              <div className="p-6 bg-gray-50 border-b border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-4">
-                 <div className="flex items-center gap-3 bg-white p-3 rounded-lg border border-gray-200">
-                    <Truck className="w-5 h-5 text-blue-500" />
-                    <div>
-                      <p className="text-xs text-gray-500 font-semibold">Delivery Status</p>
-                      <p className="font-bold text-gray-900 text-sm">{metrics.deliveryStatus}</p>
-                    </div>
-                 </div>
-                 <div className="flex items-center gap-3 bg-white p-3 rounded-lg border border-gray-200">
-                    <CreditCard className="w-5 h-5 text-green-500" />
-                    <div>
-                      <p className="text-xs text-gray-500 font-semibold">Payment Status</p>
-                      <p className="font-bold text-gray-900 text-sm">{metrics.paymentStatus}</p>
-                    </div>
-                 </div>
-              </div>
-              
-              <div className="p-6">
-                <h4 className="text-sm font-bold text-gray-900 mb-6 uppercase tracking-wide">Journey Timeline</h4>
-                <div className="relative pl-4 space-y-5">
-                  <div className="absolute top-2 bottom-4 left-5 w-0.5 bg-gray-100"></div>
-                  
-                  {steps.map((step, idx) => {
-                    const isDone = step.done;
-                    const isCurrent = step.current;
-                    const isFuture = !isDone && !isCurrent;
-                    
-                    return (
-                      <div key={step.id} className="relative flex items-center gap-4">
-                        <div className={"w-3 h-3 rounded-full flex items-center justify-center z-10 shrink-0 " + 
-                          (isDone ? 'bg-green-500 ring-4 ring-green-50' : 
-                           isCurrent ? 'bg-blue-500 ring-4 ring-blue-50 animate-pulse' : 
-                           'bg-gray-300 ring-4 ring-gray-50')}
-                        ></div>
-                        <div className={"text-sm font-semibold " + 
-                          (isDone ? 'text-gray-900' : 
-                           isCurrent ? 'text-blue-700 font-bold' : 
-                           'text-gray-400')}
-                        >
-                          {step.label}
-                        </div>
-                        {isCurrent && !isComplete && (
-<div className="ml-auto">
-                              <span className="text-[10px] uppercase font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Next Action Required</span>
-</div>
-)}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-12 text-center text-gray-500">
-              <LayoutDashboard className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <p>No active lot. Create a lot to begin your journey.</p>
-            </div>
-          )}
-        </div>
-        
-        <div className="lg:col-span-1 flex flex-col gap-6">
-          <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-            <div className="bg-gray-50 border-b border-gray-100 p-4">
-              <h3 className="font-bold text-gray-900">Quick Actions</h3>
-            </div>
-            <div className="p-4 flex flex-col gap-2">
-              <Link href="/market-intelligence" className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-gray-700 font-medium border border-transparent hover:border-gray-200">
-                <LineChart className="w-5 h-5 text-gray-400" /> Market Intelligence
-              </Link>
-              <Link href="/sell-advisor" className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-gray-700 font-medium border border-transparent hover:border-gray-200">
-                <BrainCircuit className="w-5 h-5 text-gray-400" /> AI Sell Advisor
-              </Link>
-              <Link href="/create-lot" className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-gray-700 font-medium border border-transparent hover:border-gray-200">
-                <PackagePlus className="w-5 h-5 text-gray-400" /> Create New Lot
-              </Link>
-              <div className="h-px bg-gray-100 my-1"></div>
-              <Link href="/aggregation" className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-gray-700 font-medium border border-transparent hover:border-gray-200">
-                <Users className="w-5 h-5 text-gray-400" /> FPO Aggregation
-              </Link>
-              <Link href="/matching" className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-gray-700 font-medium border border-transparent hover:border-gray-200">
-                <Search className="w-5 h-5 text-gray-400" /> Smart Buyer Matching
-              </Link>
+      {/* Intelligence Panel & Stepper when Lot Exists */}
+      {currentLot && metrics && (
+        <>
+          <div className="flex items-center justify-between mb-4 px-1">
+            <h2 className="text-xl font-bold text-gray-900 tracking-tight">Current Sale Opportunity</h2>
+            <div className="flex gap-2">
+              <button onClick={() => router.push('/sell-advisor')} className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 shadow-sm transition-colors">Value Simulator</button>
             </div>
           </div>
+          
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-6 flex flex-col md:flex-row items-stretch divide-y md:divide-y-0 md:divide-x divide-gray-100 overflow-hidden">
+             {/* Lot Context */}
+             <div className="p-6 flex-1 bg-gray-50/50">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Current Lot</p>
+                  <span className="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded border border-blue-100">{currentLot.state || 'Location'}</span>
+                </div>
+                <h3 className="text-xl font-extrabold text-gray-900 leading-tight mb-1">{currentLot.commodity}</h3>
+                <p className="text-sm text-gray-600 font-medium">
+                  {metrics.qty} {currentLot.unit} • Grade {currentLot.quality.grade}
+                  {metrics.isAggregated && <span className="ml-2 text-xs text-purple-700 bg-purple-50 px-2 py-0.5 rounded font-bold border border-purple-100">Aggregated</span>}
+                </p>
+             </div>
+             
+             <div className="p-6 flex-1 flex flex-col justify-center">
+                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-2">Est. Net Realization</p>
+                <p className="text-3xl font-black text-green-700 tracking-tight">{formatINR(metrics.net)}</p>
+                {metrics.logCost > 0 && <p className="text-xs font-semibold text-gray-500 mt-1">After {formatINR(metrics.logCost)} transport</p>}
+             </div>
+
+             <div className="p-6 flex-1 flex flex-col justify-center">
+                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-2">Market Opportunity</p>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-3xl font-black text-gray-900">87</span>
+                  <span className="text-sm font-bold text-gray-400">/100</span>
+                </div>
+                <p className="text-xs text-green-700 font-bold mt-1">Excellent Match</p>
+             </div>
+
+             <div className="p-6 flex-1 flex flex-col justify-center">
+                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-2">Storage Recommendation</p>
+                <p className="text-sm font-bold text-gray-900 mb-2">Sell within 2 days</p>
+                <span className="self-start text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">Medium Weather Risk</span>
+             </div>
+          </div>
+
+          <div className="mb-8">
+            <h2 className="text-sm font-bold text-gray-900 mb-4 px-1 tracking-tight">Transaction Lifecycle</h2>
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 overflow-x-auto scrollbar-thin">
+              <div className="flex items-start min-w-[800px] py-2 relative">
+                {steps.map((s, i) => {
+                  const isPast = s.done;
+                  const isCurrent = !isComplete && currentStepIndex === i;
+                  const isSkipped = s.optional && !s.done && i < (currentStepIndex >= 0 ? currentStepIndex : steps.length);
+                  
+                  return (
+                    <div key={s.id} className="flex-1 relative">
+                      <div className="flex flex-col items-center relative z-10 group cursor-pointer" onClick={() => router.push(s.path)}>
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all text-sm font-bold border-2
+                          ${isPast ? 'bg-green-600 border-green-600 text-white shadow-md' : 
+                            isSkipped ? 'bg-gray-50 border-gray-200 text-gray-400' :
+                            isCurrent ? 'bg-white border-green-500 text-green-600 shadow-md ring-4 ring-green-50 scale-110' : 
+                            'bg-white border-gray-200 text-gray-400'}`}
+                        >
+                          {isPast ? <Check className="w-5 h-5" /> : (i + 1)}
+                        </div>
+                        <div className="mt-4 text-center">
+                          <p className={`text-xs font-bold uppercase tracking-wider whitespace-nowrap ${isCurrent ? 'text-green-700' : isPast ? 'text-gray-900' : 'text-gray-400'}`}>
+                            {s.label}
+                          </p>
+                          {isSkipped && <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Skipped</p>}
+                        </div>
+                      </div>
+                      {i < steps.length - 1 && (
+                        <div className={`absolute top-5 left-[50%] w-full h-0.5 -z-10 ${steps[i+1].done || isSkipped ? 'bg-green-500' : 'bg-gray-200'}`} />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-12">
+            {renderNextActionBlock()}
+          </div>
+        </>
+      )}
+
+      {/* Quick Links Section */}
+      <div className="mb-6">
+        <h2 className="text-sm font-bold text-gray-500 mb-4 px-1 uppercase tracking-wider">Quick Actions</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          {[
+            { label: 'Intelligence', icon: LineChart, path: '/market-intelligence', color: 'text-blue-600', bg: 'bg-blue-50' },
+            { label: 'Sell Advisor', icon: BrainCircuit, path: '/sell-advisor', color: 'text-purple-600', bg: 'bg-purple-50' },
+            { label: 'Create Lot', icon: PackagePlus, path: '/create-lot', color: 'text-green-600', bg: 'bg-green-50' },
+            { label: 'FPO Aggregation', icon: Users, path: '/aggregation', color: 'text-orange-600', bg: 'bg-orange-50' },
+            { label: 'Buyer Match', icon: Search, path: '/matching', color: 'text-indigo-600', bg: 'bg-indigo-50' },
+            { label: 'Logistics', icon: Truck, path: '/logistics', color: 'text-rose-600', bg: 'bg-rose-50' },
+          ].map((item, i) => (
+            <button 
+              key={i} 
+              onClick={() => router.push(item.path)}
+              className="flex flex-col items-center justify-center p-5 bg-white border border-gray-200 rounded-xl hover:border-gray-300 hover:shadow-md transition-all group"
+            >
+              <div className={`w-12 h-12 ${item.bg} ${item.color} rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}>
+                <item.icon className="w-6 h-6" />
+              </div>
+              <span className="text-xs font-bold text-gray-700 text-center">{item.label}</span>
+            </button>
+          ))}
         </div>
       </div>
     </div>
   );
 }
-
-
-

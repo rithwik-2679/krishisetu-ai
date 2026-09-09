@@ -1,255 +1,298 @@
-﻿"use client";
+"use client";
+import { formatINR } from '@/utils/economics';
+import { formatTime } from '@/utils/date';
 
 import React, { useState } from 'react';
 import { useLot } from '@/contexts/lot-context';
-import { PROTOTYPE_BUYERS } from '@/features/marketplace/data/mock-buyers';
 import { useRouter } from 'next/navigation';
-import { Truck, AlertCircle, ArrowRight, Map as MapIcon, CheckCircle2, Factory, ShieldCheck } from 'lucide-react';
-import { formatINR } from '@/utils/economics';
+import { Truck, AlertCircle, ArrowRight, MapPin, CheckCircle2, Factory, Navigation, PackageCheck, Clock, Map as MapIcon } from 'lucide-react';
 import { TrackingEvent } from '@/types/marketplace';
-import { calculateLogistics, getDeterministicDistance } from '@/utils/economics';
-
-const VEHICLES = [
-  { id: 'small', name: 'Small Truck (Mini)', capacity: 'Up to 2 Tonnes', rate: 15 },
-  { id: 'medium', name: 'Medium Truck', capacity: 'Up to 6 Tonnes', rate: 25 },
-  { id: 'large', name: 'Heavy Duty Truck', capacity: 'Up to 15 Tonnes', rate: 40 },
-];
 
 export function LogisticsDashboard() {
   const router = useRouter();
-  const { currentLot, updateLogistics, updateLotStatus } = useLot();
-  const [selectedVehicle, setSelectedVehicle] = useState(VEHICLES[1]);
+  const { currentLot, updateLogistics, updateLotStatus, isHydrated } = useLot();
+  
+  const [selectedVehicle, setSelectedVehicle] = useState('Medium Truck');
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  if (!isHydrated) return null;
 
   if (!currentLot) {
     return (
-      <div className="max-w-4xl mx-auto p-6 text-center py-20">
-        <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">No Active Lot</h2>
-        <p className="text-gray-500 mb-6">You need to create a lot to start finding buyers.</p>
-        <button onClick={() => router.push('/create-lot')} className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium transition-colors">
+      <div className="flex flex-col items-center justify-center p-12 text-center max-w-lg mx-auto mt-10 bg-white border border-gray-200 rounded-2xl shadow-sm">
+        <Truck className="w-12 h-12 text-gray-300 mb-4" />
+        <h2 className="text-xl font-bold text-gray-900 mb-2">No Active Lot</h2>
+        <p className="text-gray-500 mb-6 text-sm">Create a lot and confirm a deal to arrange transport.</p>
+        <button onClick={() => router.push('/create-lot')} className="px-6 py-2.5 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-colors">
           Create Lot
         </button>
       </div>
     );
   }
 
-  if (currentLot.status === 'Draft' || currentLot.status === 'Created' || !currentLot.selectedBuyerId || !currentLot.offerDetails || currentLot.offerDetails.status !== 'Accepted') {
+  if (!currentLot.dealConfirmed) {
     return (
-      <div className="max-w-4xl mx-auto p-6 text-center py-20">
-        <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Deal Not Confirmed</h2>
-        <p className="text-gray-500 mb-6">Logistics can only be arranged after an offer has been accepted.</p>
-        <button onClick={() => router.push('/offers')} className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium transition-colors">
-          View Offers
+      <div className="flex flex-col items-center justify-center p-12 text-center max-w-lg mx-auto mt-10 bg-white border border-gray-200 rounded-2xl shadow-sm">
+        <AlertCircle className="w-12 h-12 text-gray-300 mb-4" />
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Deal Not Confirmed</h2>
+        <p className="text-gray-500 mb-6 text-sm">You must confirm a deal with a buyer before arranging transport.</p>
+        <button onClick={() => router.push('/offers')} className="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors">
+          Review Offers
         </button>
       </div>
     );
   }
 
-  const buyer = PROTOTYPE_BUYERS.find(b => b.id === currentLot.selectedBuyerId);
-  const logistics = currentLot.logisticsDetails;
-
-  const effectiveQuantity = currentLot.fpoDetails?.isAggregated ? currentLot.fpoDetails.aggregatedQuantity : currentLot.quantity;
-
+  const effQty = currentLot.fpoDetails?.isAggregated ? currentLot.fpoDetails.aggregatedQuantity : currentLot.quantity;
+  const isAggregated = !!currentLot.fpoDetails?.isAggregated;
   
-  const destination = buyer?.location || 'Processing Facility';
-  const origin = currentLot.district || 'Farmer Location';
-  const distanceKm = getDeterministicDistance(origin, destination);
+  // Basic distance estimation
+  const distance = currentLot.selectedBuyerId === 'Metro Retail Logistics' ? 18 : 
+                   currentLot.selectedBuyerId === 'FreshFoods Processing Ltd' ? 45 : 120;
   
-  const transportCalc = calculateLogistics(distanceKm, effectiveQuantity, { capacityTonnes: parseInt(selectedVehicle.capacity.replace(/[^0-9]/g, '')), ratePerKm: selectedVehicle.rate });
-  const estimatedCost = transportCalc.totalTransportCost;
-  const vehiclesRequired = transportCalc.vehiclesRequired;
-  
-
-  const handleBookLogistics = () => {
-    updateLotStatus('Transport Arranged');
-    updateLogistics({
-      vehicle: selectedVehicle.name,
-      distance: distanceKm,
-      estimatedCost,
-      status: 'Transport Arranged',
-      timeline: [
-        { status: 'Transport Arranged', timestamp: new Date().toISOString() }
-      ]
-    });
+  const capacityMap: Record<string, number> = {
+    'Small Truck': currentLot.unit === 'Tonnes' ? 2 : 20,
+    'Medium Truck': currentLot.unit === 'Tonnes' ? 6 : 60,
+    'Heavy Truck': currentLot.unit === 'Tonnes' ? 15 : 150,
   };
 
-  const advanceTracking = (nextStatus: TrackingEvent['status']) => {
-    if (!logistics) return;
-    updateLotStatus(nextStatus);
-    updateLogistics({
-      status: nextStatus,
-      timeline: [
-        ...logistics.timeline,
-        { status: nextStatus, timestamp: new Date().toISOString() }
-      ]
-    });
+  const capacity = capacityMap[selectedVehicle];
+  const vehiclesRequired = Math.ceil(effQty / capacity);
+  
+  const rateMap: Record<string, number> = {
+    'Small Truck': 15,
+    'Medium Truck': 25,
+    'Heavy Truck': 40
+  };
+  
+  const ratePerKm = rateMap[selectedVehicle];
+  const totalCost = vehiclesRequired * distance * ratePerKm;
+  
+  // FPO economics adjustment
+  const farmerShare = (isAggregated && currentLot.fpoDetails?.farmerShareRatio) ? currentLot.fpoDetails.farmerShareRatio : 1;
+  const farmerTransportCost = Math.round(totalCost * farmerShare);
+
+  const handleArrangeTransport = () => {
+    setIsProcessing(true);
+    setTimeout(() => {
+      const initialEvent: TrackingEvent = {
+        status: 'Transport Arranged',
+        location: `${currentLot.district}, ${currentLot.state}`,
+        timestamp: new Date().toISOString(),
+        description: `Vehicle scheduled for pickup. Assigned to ${selectedVehicle}.`
+      };
+      updateLogistics({
+        status: 'Arranged',
+        estimatedCost: farmerTransportCost,
+        distance,
+        vehicle: selectedVehicle,
+        vehicleType: selectedVehicle,
+        timeline: [initialEvent],
+        events: [initialEvent]
+      });
+      setIsProcessing(false);
+    }, 1500);
   };
 
-  const renderTimeline = () => {
-    if (!logistics) return null;
-    const stages: TrackingEvent['status'][] = ['Transport Arranged', 'Dispatched', 'In Transit', 'Delivered'];
-    
-    return (
-      <div className="mt-8">
-        <h3 className="font-bold text-gray-900 mb-6 flex items-center gap-2"><Truck className="w-5 h-5"/> Delivery Tracking</h3>
-        <div className="flex flex-col md:flex-row justify-between relative">
-          <div className="absolute top-1/2 left-4 right-4 h-1 bg-gray-200 -translate-y-1/2 hidden md:block z-0"></div>
-          
-          {stages.map((stage) => {
-            const event = logistics.timeline.find(t => t.status === stage);
-            const isCompleted = !!event;
-            
-            return (
-              <div key={stage} className="relative z-10 flex flex-row md:flex-col items-center gap-4 md:gap-2 mb-6 md:mb-0 w-full md:w-auto">
-                <div className={"w-8 h-8 rounded-full flex items-center justify-center border-2 " + (isCompleted ? 'bg-green-600 border-green-600 text-white' : 'bg-white border-gray-300 text-gray-300')}>
-                  {isCompleted ? <CheckCircle2 className="w-4 h-4" /> : <div className="w-2 h-2 rounded-full bg-gray-300"></div>}
-                </div>
-                <div className="text-left md:text-center flex-1">
-                  <p className={"text-sm font-bold " + (isCompleted ? 'text-gray-900' : 'text-gray-400')}>{stage}</p>
-                  {event && <p className="text-xs text-gray-500">{new Date(event.timestamp).toLocaleDateString('en-IN')}</p>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+  const simulateNextStep = () => {
+    if (!currentLot.logisticsDetails) return;
+    setIsProcessing(true);
+    setTimeout(() => {
+      const events = [...(currentLot.logisticsDetails!.events || currentLot.logisticsDetails!.timeline || [])];
+      let nextStatus: 'Arranged' | 'Dispatched' | 'In Transit' | 'Delivered' = 'Arranged';
+      let eventStatus: TrackingEvent['status'] = 'Dispatched';
+      let desc = '';
+      
+      const currentStatus = currentLot.logisticsDetails!.status;
+      
+      if (currentStatus === 'Arranged') {
+        nextStatus = 'Dispatched';
+        eventStatus = 'Dispatched';
+        desc = `Produce loaded and dispatched from ${currentLot.district}.`;
+      } else if (currentStatus === 'Dispatched') {
+        nextStatus = 'In Transit';
+        eventStatus = 'In Transit';
+        desc = `In transit to ${currentLot.selectedBuyerId} facility.`;
+      } else if (currentStatus === 'In Transit') {
+        nextStatus = 'Delivered';
+        eventStatus = 'Delivered';
+        desc = `Produce successfully delivered to ${currentLot.selectedBuyerId}.`;
+      }
 
-        {logistics.status !== 'Delivered' && (
-          <div className="mt-8 flex gap-3 justify-center border-t pt-6 border-gray-100">
-            {logistics.status === 'Transport Arranged' && <button onClick={() => advanceTracking('Dispatched')} className="bg-blue-600 text-white px-4 py-2 rounded font-medium text-sm transition-colors shadow-sm">Mark as Dispatched (Demo)</button>}
-            {logistics.status === 'Dispatched' && <button onClick={() => advanceTracking('In Transit')} className="bg-blue-600 text-white px-4 py-2 rounded font-medium text-sm transition-colors shadow-sm">Mark In Transit (Demo)</button>}
-            {logistics.status === 'In Transit' && <button onClick={() => advanceTracking('Delivered')} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-medium text-sm transition-colors shadow-sm">Mark Delivered (Demo)</button>}
-          </div>
-        )}
-        
-        {logistics.status === 'Delivered' && (
-          <div className="mt-8 flex flex-col items-center border-t pt-6 border-gray-100 text-center">
-            <h4 className="text-xl font-bold text-gray-900 mb-2 text-green-700">Delivery Successful</h4>
-            <p className="text-gray-500 mb-4 text-sm">The produce has been securely handed over to the buyer. You can now track your payment.</p>
-            <button onClick={() => router.push('/payments')} className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-colors">
-              Proceed to Payment Settlement <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-      </div>
-    );
+      events.push({
+        status: eventStatus,
+        location: currentStatus === 'In Transit' ? 'Buyer Facility' : 'Route',
+        timestamp: new Date().toISOString(),
+        description: desc
+      });
+
+      updateLogistics({ status: nextStatus, events, timeline: events });
+      
+      if (nextStatus === 'Delivered') {
+        updateLotStatus('Delivered');
+      }
+      setIsProcessing(false);
+    }, 1500);
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
+    <div className="max-w-6xl mx-auto p-4 md:p-6 lg:p-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight text-gray-900 flex items-center gap-2">
-          <Truck className="w-8 h-8 text-green-600" />
-          Logistics & Transport
-        </h1>
-        <p className="text-gray-500 mt-1">Coordinate transport from farm gate to buyer destination.</p>
+        <h1 className="text-3xl font-extrabold tracking-tight text-gray-900 mb-2">Fulfillment & Logistics</h1>
+        <p className="text-gray-500 font-medium">Arrange transport and track delivery to the buyer facility.</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 flex flex-col gap-6">
-          <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-            <div className="bg-gray-50 p-4 border-b border-gray-200 flex items-center justify-between">
-              <h2 className="font-bold text-gray-800 flex items-center gap-2"><MapIcon className="w-4 h-4"/> Estimated Route View</h2>
-            </div>
-            <div className="p-6">
-              <div className="relative w-full h-48 bg-slate-50 rounded-lg border border-slate-200 overflow-hidden mb-6 flex items-center justify-center">
-                <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(#94a3b8 1px, transparent 1px)', backgroundSize: '16px 16px' }}></div>
-                <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
-                  <path d="M 20% 70% Q 50% 20% 80% 40%" fill="none" stroke="#22c55e" strokeWidth="4" strokeDasharray="8 8" className="animate-pulse" />
-                </svg>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        
+        {/* LEFT COLUMN: Route View */}
+        <div className="lg:col-span-4 flex flex-col gap-6">
+           <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 overflow-hidden relative">
+             <div className="absolute top-0 right-0 bg-blue-50 text-blue-700 text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-bl-lg border-b border-l border-blue-100 shadow-sm">
+               Estimated Route View
+             </div>
+             
+             <div className="mt-4 mb-8 relative">
+               <div className="absolute left-6 top-6 bottom-6 w-0.5 bg-gray-200"></div>
+               <div className="flex items-start gap-4 mb-6 relative">
+                 <div className="w-12 h-12 bg-white border-2 border-gray-200 rounded-full flex items-center justify-center shrink-0 z-10 shadow-sm">
+                   <MapPin className="w-5 h-5 text-gray-600" />
+                 </div>
+                 <div className="pt-2">
+                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Origin</p>
+                   <p className="font-bold text-gray-900">{currentLot.district || 'Farm Location'}, {currentLot.state}</p>
+                 </div>
+               </div>
+               
+               <div className="flex items-start gap-4 relative">
+                 <div className="w-12 h-12 bg-white border-2 border-green-500 rounded-full flex items-center justify-center shrink-0 z-10 shadow-sm">
+                   <Factory className="w-5 h-5 text-green-600" />
+                 </div>
+                 <div className="pt-2">
+                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Destination</p>
+                   <p className="font-bold text-gray-900">{currentLot.selectedBuyerId}</p>
+                 </div>
+               </div>
+             </div>
 
-                <div className="absolute left-[20%] top-[70%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
-                  <div className="w-6 h-6 bg-white border-4 border-blue-600 rounded-full shadow-lg z-10"></div>
-                  <div className="mt-2 bg-white px-3 py-1 rounded shadow text-xs font-bold whitespace-nowrap border border-gray-100 flex flex-col items-center">
-                    <span className="text-gray-500">Pickup</span>
-                    <span className="text-gray-900">{currentLot.district}, {currentLot.state}</span>
-                  </div>
+             <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Navigation className="w-5 h-5 text-gray-400" />
+                  <span className="font-bold text-gray-700">Distance</span>
                 </div>
+                <span className="text-xl font-black text-gray-900">{distance} km</span>
+             </div>
+           </div>
 
-                <div className="absolute left-[80%] top-[40%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
-                  <div className="w-8 h-8 bg-white border-4 border-green-600 rounded-full shadow-lg z-10 flex items-center justify-center">
-                    <Factory className="w-3 h-3 text-green-600" />
-                  </div>
-                  <div className="mt-2 bg-white px-3 py-1 rounded shadow text-xs font-bold whitespace-nowrap border border-gray-100 flex flex-col items-center">
-                    <span className="text-gray-500">Destination</span>
-                    <span className="text-gray-900">{buyer?.location}</span>
-                  </div>
-                </div>
-              </div>
-
-              {logistics ? renderTimeline() : (
-                <div>
-                  <h3 className="font-bold text-gray-900 mb-4">Select Transport Vehicle</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                    {VEHICLES.map(v => (
-                      <div 
-                        key={v.id} 
-                        onClick={() => setSelectedVehicle(v)}
-                        className={"border rounded-xl p-4 cursor-pointer transition-all " + (selectedVehicle.id === v.id ? 'border-green-600 bg-green-50 shadow-sm' : 'border-gray-200 hover:border-green-300')}
-                      >
-                        <Truck className={"w-6 h-6 mb-2 " + (selectedVehicle.id === v.id ? 'text-green-600' : 'text-gray-400')} />
-                        <h4 className="font-bold text-gray-900 text-sm mb-1">{v.name}</h4>
-                        <p className="text-xs text-gray-500">{v.capacity}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-6 flex flex-col sm:flex-row justify-between items-center gap-4">
-                    <div>
-                      <p className="text-sm font-bold text-blue-900">Estimated Logistics Cost</p>
-                      <p className="text-xs text-blue-700">Calculated based on {distanceKm}km standard rate</p>
-                    </div>
-                    <div className="text-2xl font-bold text-blue-900">
-                      {formatINR(estimatedCost)}
-                    </div>
-                  </div>
-
-                  <button 
-                    onClick={handleBookLogistics}
-                    className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-bold shadow-sm transition-colors"
-                  >
-                    Arrange Transport ({formatINR(estimatedCost)})
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
+           {currentLot.logisticsDetails?.status === 'Delivered' && (
+             <div className="bg-green-600 text-white rounded-2xl shadow-lg p-6 text-center relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-10"><PackageCheck className="w-24 h-24" /></div>
+                <h3 className="text-xl font-black mb-2 relative z-10">Delivery Complete</h3>
+                <p className="text-green-100 text-sm mb-6 relative z-10 font-medium">The buyer has received the shipment. You are now ready for payment settlement.</p>
+                <button onClick={() => router.push('/payments')} className="bg-white text-green-900 font-bold px-6 py-3 rounded-xl shadow-sm w-full relative z-10 transition-colors hover:bg-green-50">
+                  Proceed to Payments
+                </button>
+             </div>
+           )}
         </div>
 
-        <div className="lg:col-span-1">
-          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 sticky top-24">
-            <h3 className="font-bold text-gray-900 mb-4 border-b pb-2">Shipment Details</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Commodity & Volume</p>
-                <p className="font-bold text-gray-900">{currentLot.commodity}</p>
-                <p className="text-sm text-gray-600">{effectiveQuantity} {currentLot.unit} {currentLot.fpoDetails?.isAggregated && '(FPO Aggregated)'}</p>
-              </div>
+        {/* RIGHT COLUMN: Configuration or Tracking */}
+        <div className="lg:col-span-8 flex flex-col gap-6">
+          
+          {!currentLot.logisticsDetails ? (
+            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 md:p-8">
+               <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2 border-b border-gray-100 pb-3">
+                 <Truck className="w-5 h-5 text-gray-400" /> Book Transport
+               </h3>
+               
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Vehicle Requirement</label>
+                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-800 font-medium mb-4">
+                       Total Volume to transport: <strong>{effQty} {currentLot.unit}</strong>
+                       {isAggregated && <span className="block mt-1 text-xs text-blue-600">(Your share: {Math.round(farmerShare * 100)}% of total cost)</span>}
+                    </div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Select Vehicle Type</label>
+                    <select 
+                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-green-500 outline-none bg-white shadow-sm"
+                      value={selectedVehicle}
+                      onChange={(e) => setSelectedVehicle(e.target.value)}
+                    >
+                      <option value="Small Truck">Small Truck (Up to 2T/20Qtl)</option>
+                      <option value="Medium Truck">Medium Truck (Up to 6T/60Qtl)</option>
+                      <option value="Heavy Truck">Heavy Truck (Up to 15T/150Qtl)</option>
+                    </select>
+                  </div>
+                  
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 flex flex-col justify-center">
+                     <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Vehicles Required</p>
+                     <p className="text-2xl font-black text-gray-900 mb-4">{vehiclesRequired}</p>
+                     
+                     <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Estimated Transport Cost (Your Share)</p>
+                     <p className="text-4xl font-black text-rose-600">{formatINR(farmerTransportCost)}</p>
+                     <p className="text-xs text-gray-500 font-medium mt-2">Deducted from final settlement.</p>
+                  </div>
+               </div>
 
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Buyer Details</p>
-                <p className="font-bold text-gray-900">{buyer?.name}</p>
-                <p className="text-sm text-gray-600">{buyer?.location}</p>
-              </div>
-
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Responsibility</p>
-                <p className="font-medium text-blue-700 bg-blue-50 inline-block px-2 py-0.5 rounded text-sm mt-0.5">
-                  {buyer?.requirements.delivery}
-                </p>
-              </div>
+               <div className="flex justify-end pt-6 border-t border-gray-100">
+                  <button 
+                    onClick={handleArrangeTransport}
+                    disabled={isProcessing}
+                    className="px-8 py-3.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-black transition-colors shadow-sm flex items-center justify-center gap-2"
+                  >
+                    {isProcessing ? 'Processing...' : 'Confirm Transport Booking'}
+                  </button>
+               </div>
             </div>
+          ) : (
+            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden h-full flex flex-col">
+               <div className="bg-gray-50 border-b border-gray-100 p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-lg">Shipment Tracker</h3>
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mt-1">Status: <span className="text-green-600">{currentLot.logisticsDetails.status}</span></p>
+                  </div>
+                  {currentLot.logisticsDetails.status !== 'Delivered' && (
+                    <button 
+                      onClick={simulateNextStep}
+                      disabled={isProcessing}
+                      className="px-6 py-2.5 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-xl text-sm font-bold shadow-sm transition-colors"
+                    >
+                      {isProcessing ? 'Updating...' : 'Simulate Next Update'}
+                    </button>
+                  )}
+               </div>
 
-            <div className="mt-6 pt-4 border-t border-gray-100 flex items-start gap-2 text-xs text-gray-500">
-              <ShieldCheck className="w-4 h-4 text-green-600 shrink-0" />
-              <p>Shipment requires verified weighing scale receipt upon dispatch. Keep physical copies ready.</p>
+               <div className="p-6 flex-1 max-h-[500px] overflow-y-auto scrollbar-thin">
+                 <div className="space-y-0">
+                   {(currentLot.logisticsDetails.events || currentLot.logisticsDetails.timeline || []).map((event, idx, arr) => {
+                     const isLast = idx === arr.length - 1;
+                     const isDelivered = event.status === 'Delivered';
+                     return (
+                       <div key={idx} className="flex items-start gap-4 relative">
+                         <div className="flex flex-col items-center">
+                           <div className={`w-10 h-10 rounded-full flex items-center justify-center z-10 shadow-sm
+                             ${isDelivered ? 'bg-green-100 border-2 border-green-500 text-green-600' : 'bg-blue-100 border-2 border-blue-500 text-blue-600'}
+                           `}>
+                             {isDelivered ? <CheckCircle2 className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
+                           </div>
+                           {!isLast && <div className="w-0.5 h-16 bg-gray-200 mt-2 mb-2"></div>}
+                         </div>
+                         <div className={`bg-gray-50 border border-gray-100 rounded-xl p-4 flex-1 mb-6 shadow-sm ${isLast ? 'ring-2 ring-blue-500/20' : ''}`}>
+                           <div className="flex justify-between items-start mb-1">
+                             <p className="font-bold text-gray-900">{event.status}</p>
+                             <p className="text-xs font-semibold text-gray-500">{formatTime(event.timestamp)}</p>
+                           </div>
+                           <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1"><MapIcon className="w-3 h-3"/> {event.location}</p>
+                           <p className="text-sm text-gray-700 font-medium">{event.description}</p>
+                         </div>
+                       </div>
+                     );
+                   })}
+                 </div>
+               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
-
-

@@ -6,13 +6,17 @@ export interface QualityAssessment {
   size: 'Large' | 'Medium' | 'Small' | 'Mixed';
   qualityScore: number;
   observations: string[];
+  evidenceUrl?: string;
+  evidenceScore?: number;
 }
 
 export interface OfferDetails {
   buyerPrice: number;
-  status: 'Pending' | 'Countered' | 'Accepted' | 'Rejected';
+  farmerCounter?: number;
+  status: 'Pending' | 'Countered' | 'Accepted' | 'Rejected' | 'pending_farmer' | 'accepted' | 'rejected';
   history: {
     role: 'Buyer' | 'Farmer';
+    party?: 'Buyer' | 'Farmer' | 'buyer' | 'farmer';
     price: number;
     timestamp: string;
     note?: string;
@@ -22,14 +26,18 @@ export interface OfferDetails {
 export interface TrackingEvent {
   status: string;
   timestamp: string;
+  location?: string;
+  description?: string;
 }
 
 export interface LogisticsDetails {
   vehicle: string;
+  vehicleType?: string;
   distance: number;
   estimatedCost: number;
   status: string;
   timeline: TrackingEvent[];
+  events?: TrackingEvent[];
 }
 
 export interface PaymentDetails {
@@ -50,6 +58,8 @@ export interface GrievanceDetails {
   priority: string;
   status: string;
   timeline: TrackingEvent[];
+  filedAt?: string;
+  events?: TrackingEvent[];
 }
 
 export interface NearbyFarmerLot {
@@ -66,32 +76,34 @@ export interface NearbyFarmerLot {
 
 export interface FpoAggregationDetails {
   isAggregated: boolean;
-  fpoName: string;
-  participatingFarmers: number;
-  contributingLots: NearbyFarmerLot[];
-  originalQuantity: number;
+  fpoName?: string;
+  participatingFarmers?: number;
+  contributingLots?: NearbyFarmerLot[];
+  originalQuantity?: number;
   aggregatedQuantity: number;
-  averageCompatibilityScore: number;
-  estimatedIndividualCost: number;
-  estimatedAggregatedCost: number;
+  averageCompatibilityScore?: number;
+  estimatedIndividualCost?: number;
+  estimatedAggregatedCost?: number;
   estimatedSavings: number;
   status: string;
+  farmerShareRatio?: number;
+  matchedFarmerCount?: number;
 }
 
 export interface Lot {
   id: string;
   commodity: string;
-  variety: string;
+  variety?: string;
   quantity: number;
   unit: string;
   district: string;
   state: string;
   expectedPrice: number;
-  referenceGovPrice: number;
-  harvestDate: string;
-  preferredSellingDate: string;
-  storageAvailable: boolean;
-  notes: string;
+  referenceGovPrice?: number;
+  harvestDate?: string;
+  preferredSellingDate?: string;
+  storageAvailable?: boolean;
+  notes?: string;
   quality: QualityAssessment;
   proofOfLot?: {
     challengeId: string;
@@ -103,6 +115,8 @@ export interface Lot {
   status: string;
   createdAt: string;
   
+  dealConfirmed?: boolean;
+  deliveryConfirmed?: boolean;
   fpoDetails?: FpoAggregationDetails;
   selectedBuyerId?: string;
   offerDetails?: OfferDetails;
@@ -124,8 +138,9 @@ export interface BuyerRequirement {
 export interface Buyer {
   id: string;
   name: string;
-  type: 'Processor' | 'Wholesaler' | 'Retailer' | 'Institutional' | 'Exporter';
+  type: 'Processor' | 'Wholesaler' | 'Retailer' | 'Institutional' | 'Exporter' | string;
   location: string;
+  distance?: number;
   rating: number; // 0-5
   reliabilityScore: number; // 0-100
   isVerified: boolean;
@@ -145,6 +160,3 @@ export interface BuyerMatch {
   };
   reasons: string[];
 }
-
-
-
